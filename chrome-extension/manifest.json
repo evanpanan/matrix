@@ -1,0 +1,75 @@
+{
+  "manifest_version": 3,
+  "name": "Matrix Data Collector",
+  "version": "2.0.0",
+  "description": "矩阵账号数据采集插件 v2 · RBAC 溯源版：支持股票情绪/社区监测，自动携带 Operator ID 上报",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting",
+    "notifications",
+    "identity",
+    "system"
+  ],
+  "host_permissions": [
+    "https://*.xueqiu.com/*",
+    "https://*.futu.cn/*",
+    "https://*.futunn.com/*",
+    "https://*.laohu8.com/*",
+    "https://*.qq.com/*",
+    "https://*.weixin.qq.com/*",
+    "https://*.xiaohongshu.com/*",
+    "https://*.xhslink.com/*",
+    "https://*.douyin.com/*",
+    "https://*.iesdouyin.com/*",
+    "https://*.twitter.com/*",
+    "https://*.x.com/*",
+    "https://*.youtube.com/*",
+    "https://*.bilibili.com/*",
+    "https://*.weibo.com/*",
+    "https://*.zhihu.com/*",
+    "https://*.stocktwits.com/*",
+    "https://*.reddit.com/*",
+    "https://*.redd.it/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "action": {
+    "default_title": "Matrix Data Collector",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.xueqiu.com/*",
+        "https://*.futu.cn/*",
+        "https://*.futunn.com/*",
+        "https://*.laohu8.com/*",
+        "https://*.weixin.qq.com/*",
+        "https://*.xiaohongshu.com/*",
+        "https://*.douyin.com/*",
+        "https://*.x.com/*",
+        "https://*.twitter.com/*",
+        "https://*.youtube.com/*",
+        "https://*.bilibili.com/*",
+        "https://*.weibo.com/*",
+        "https://*.zhihu.com/*",
+        "https://*.stocktwits.com/symbol/*",
+        "https://*.stocktwits.com/*",
+        "https://www.reddit.com/r/*",
+        "https://*.reddit.com/r/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

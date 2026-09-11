@@ -1,0 +1,224 @@
+{
+  "fingerprint_browser": {
+    "type": "adspower",
+    "base_url": "http://local.adspower.net:50325",
+    "start_timeout": 30,
+    "shutdown_timeout": 15
+  },
+  "output": {
+    "data_file": "data.json",
+    "csv_file": "data_export.csv",
+    "encoding": "utf-8"
+  },
+  "run_settings": {
+    "delay_between_accounts": 5,
+    "delay_before_extract": 4,
+    "max_retry_per_account": 2,
+    "retry_delay": 8,
+    "page_load_timeout": 45000,
+    "screenshot_on_error": true,
+    "screenshot_dir": "screenshots",
+    "default_operator_uid": "op_runner_001",
+    "default_operator_name": "中央调度器",
+    "machine_name": "CI-Server-01"
+  },
+  "api_server": {
+    "enable": true,
+    "host": "0.0.0.0",
+    "port": 8000,
+    "cors_origins": ["*"],
+    "allow_iframe": true,
+    "trust_internal_jwt": true,
+    "jwt_secret": "change-me-for-production-use-long-random-secret"
+  },
+  "operators": [
+    {
+      "operator_uid": "admin_001",
+      "operator_name": "周·CEO",
+      "role": "admin",
+      "email": "ceo@matrix.local",
+      "avatar_color": "#6366f1,#8b5cf6",
+      "status": "active"
+    },
+    {
+      "operator_uid": "op_001",
+      "operator_name": "李雷 · 金融组",
+      "role": "operator",
+      "email": "lilei@matrix.local",
+      "avatar_color": "#0ea5e9,#22d3ee",
+      "status": "active"
+    },
+    {
+      "operator_uid": "op_002",
+      "operator_name": "韩梅梅 · 社媒组",
+      "role": "operator",
+      "email": "hanmm@matrix.local",
+      "avatar_color": "#10b981,#14b8a6",
+      "status": "active"
+    },
+    {
+      "operator_uid": "op_003",
+      "operator_name": "Jim · 海外组",
+      "role": "operator",
+      "email": "jim@matrix.local",
+      "avatar_color": "#f59e0b,#ef4444",
+      "status": "active"
+    }
+  ],
+  "accounts": [
+    {
+      "entity_type": "ACCOUNT",
+      "account_name": "价值投资笔记",
+      "platform": "富途牛牛",
+      "platform_key": "futu",
+      "profile_id": "k2m4n6p8",
+      "target_url": "https://www.futunn.com/u/12345678",
+      "assigned_operator_uid": "op_001",
+      "assigned_operator_name": "李雷 · 金融组",
+      "active": true
+    },
+    {
+      "entity_type": "ACCOUNT",
+      "account_name": "成长股猎手",
+      "platform": "老虎社区",
+      "platform_key": "laohu",
+      "profile_id": "a1b3c5d7",
+      "target_url": "https://www.laohu8.com/user/87654321",
+      "assigned_operator_uid": "op_001",
+      "assigned_operator_name": "李雷 · 金融组",
+      "active": true
+    },
+    {
+      "entity_type": "ACCOUNT",
+      "account_name": "财经观察",
+      "platform": "雪球",
+      "platform_key": "xueqiu",
+      "profile_id": "x9y7z5w3",
+      "target_url": "https://xueqiu.com/u/55667788",
+      "assigned_operator_uid": "op_001",
+      "assigned_operator_name": "李雷 · 金融组",
+      "active": true
+    },
+    {
+      "entity_type": "COMMUNITY",
+      "account_name": "$NVDA",
+      "platform": "Stocktwits",
+      "platform_key": "stocktwits",
+      "symbol": "NVDA",
+      "target_url": "https://stocktwits.com/symbol/NVDA",
+      "assigned_operator_uid": "op_001",
+      "assigned_operator_name": "李雷 · 金融组",
+      "active": true
+    },
+    {
+      "entity_type": "COMMUNITY",
+      "account_name": "$TSLA",
+      "platform": "Stocktwits",
+      "platform_key": "stocktwits",
+      "symbol": "TSLA",
+      "target_url": "https://stocktwits.com/symbol/TSLA",
+      "assigned_operator_uid": "op_001",
+      "assigned_operator_name": "李雷 · 金融组",
+      "active": true
+    },
+    {
+      "entity_type": "ACCOUNT",
+      "account_name": "生活记录",
+      "platform": "小红书",
+      "platform_key": "xiaohongshu",
+      "profile_id": "r3t5v7x9",
+      "target_url": "https://www.xiaohongshu.com/user/profile/abc123def456",
+      "assigned_operator_uid": "op_002",
+      "assigned_operator_name": "韩梅梅 · 社媒组",
+      "active": true
+    },
+    {
+      "entity_type": "ACCOUNT",
+      "account_name": "短视频运营",
+      "platform": "抖音",
+      "platform_key": "douyin",
+      "profile_id": "m8n6b4v2",
+      "target_url": "https://www.douyin.com/user/MS4wLjABAAAAexample",
+      "assigned_operator_uid": "op_002",
+      "assigned_operator_name": "韩梅梅 · 社媒组",
+      "active": true
+    },
+    {
+      "entity_type": "ACCOUNT",
+      "account_name": "科技数码",
+      "platform": "哔哩哔哩",
+      "platform_key": "bilibili",
+      "profile_id": "z9x8c7v6",
+      "target_url": "https://space.bilibili.com/123456789",
+      "assigned_operator_uid": "op_002",
+      "assigned_operator_name": "韩梅梅 · 社媒组",
+      "active": true
+    },
+    {
+      "entity_type": "COMMUNITY",
+      "account_name": "r/wallstreetbets",
+      "platform": "Reddit",
+      "platform_key": "reddit",
+      "subreddit": "wallstreetbets",
+      "target_url": "https://www.reddit.com/r/wallstreetbets/",
+      "assigned_operator_uid": "op_001",
+      "assigned_operator_name": "李雷 · 金融组",
+      "active": true
+    },
+    {
+      "entity_type": "COMMUNITY",
+      "account_name": "r/stocks",
+      "platform": "Reddit",
+      "platform_key": "reddit",
+      "subreddit": "stocks",
+      "target_url": "https://www.reddit.com/r/stocks/",
+      "assigned_operator_uid": "op_003",
+      "assigned_operator_name": "Jim · 海外组",
+      "active": true
+    },
+    {
+      "entity_type": "ACCOUNT",
+      "account_name": "Global Investor",
+      "platform": "X(Twitter)",
+      "platform_key": "x",
+      "profile_id": "q1w2e3r4",
+      "target_url": "https://x.com/global_investor",
+      "assigned_operator_uid": "op_003",
+      "assigned_operator_name": "Jim · 海外组",
+      "active": true
+    },
+    {
+      "entity_type": "ACCOUNT",
+      "account_name": "Tech Insights",
+      "platform": "YouTube",
+      "platform_key": "youtube",
+      "profile_id": "u5i6o7p8",
+      "target_url": "https://www.youtube.com/@techinsights",
+      "assigned_operator_uid": "op_003",
+      "assigned_operator_name": "Jim · 海外组",
+      "active": true
+    },
+    {
+      "entity_type": "COMMUNITY",
+      "account_name": "$AAPL",
+      "platform": "Stocktwits",
+      "platform_key": "stocktwits",
+      "symbol": "AAPL",
+      "target_url": "https://stocktwits.com/symbol/AAPL",
+      "assigned_operator_uid": "op_003",
+      "assigned_operator_name": "Jim · 海外组",
+      "active": true
+    },
+    {
+      "entity_type": "COMMUNITY",
+      "account_name": "r/CryptoCurrency",
+      "platform": "Reddit",
+      "platform_key": "reddit",
+      "subreddit": "CryptoCurrency",
+      "target_url": "https://www.reddit.com/r/CryptoCurrency/",
+      "assigned_operator_uid": "op_003",
+      "assigned_operator_name": "Jim · 海外组",
+      "active": true
+    }
+  ]
+}
