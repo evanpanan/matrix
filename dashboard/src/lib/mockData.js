@@ -1,22 +1,55 @@
 import dayjs from 'dayjs';
 
 const PLATFORMS = [
-  { key: 'wechat', name: '微信公众号', category: '社媒', color: '#07C160' },
-  { key: 'wechat_video', name: '微信视频号', category: '社媒', color: '#10B981' },
-  { key: 'douyin', name: '抖音', category: '社媒', color: '#000000' },
-  { key: 'xiaohongshu', name: '小红书', category: '社媒', color: '#EF4444' },
-  { key: 'futu', name: '富途牛牛', category: '金融', color: '#3B82F6' },
-  { key: 'laohu', name: '老虎社区', category: '金融', color: '#F59E0B' },
-  { key: 'xueqiu', name: '雪球', category: '金融', color: '#14B8A6' },
-  { key: 'x', name: 'X(Twitter)', category: '海外', color: '#18181B' },
-  { key: 'youtube', name: 'YouTube', category: '海外', color: '#FF0000' },
-  { key: 'tiktok', name: 'TikTok', category: '海外', color: '#FE2C55' },
-  { key: 'linkedin', name: 'LinkedIn', category: '海外', color: '#0A66C2' },
-  { key: 'instagram', name: 'Instagram', category: '海外', color: '#E4405F' },
-  { key: 'stocktwits', name: 'Stocktwits', category: '社区', color: '#4263EB' },
-  { key: 'seekingalpha', name: 'Seeking Alpha', category: '社区', color: '#00853D' },
-  { key: 'reddit', name: 'Reddit', category: '社区', color: '#FF4500' },
+  { key: 'wechat', name: '微信公众号', category: '社媒', color: '#07C160',
+    logo_svg: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M8.5 4C4.91 4 2 6.46 2 9.5c0 1.68.92 3.17 2.33 4.15L3.7 16l2.58-1.29c.72.2 1.47.31 2.23.31h.36A5.5 5.5 0 0 1 8.5 13.5c0-3.04 2.91-5.5 6.5-5.5.28 0 .56.02.83.05C15.09 5.88 12.07 4 8.5 4Zm-2.4 4a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8Zm4.8 0a.9.9 0 1 1 0 1.8.9.9 0 0 1 0-1.8Zm13 5.5c0-2.76-2.6-5-5.8-5s-5.8 2.24-5.8 5 2.6 5 5.8 5c.68 0 1.34-.1 1.95-.28L22 19.5l-.58-1.8c1.02-.84 1.78-2.07 1.78-3.2Zm-8-1.1a.8.8 0 1 1 0 1.6.8.8 0 0 1 0-1.6Zm4.4 0a.8.8 0 1 1 0 1.6.8.8 0 0 1 0-1.6Z"/></svg>' },
+  { key: 'wechat_video', name: '微信视频号', category: '社媒', color: '#10B981',
+    logo_svg: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M21 5.5c0-.83-.67-1.5-1.5-1.5h-15A1.5 1.5 0 0 0 3 5.5v13A1.5 1.5 0 0 0 4.5 20h15c.83 0 1.5-.67 1.5-1.5v-13Zm-10.2 9.7V8.8l5.5 3.2-5.5 3.2Z"/></svg>' },
+  { key: 'douyin', name: '抖音', category: '社媒', color: '#000000',
+    logo_svg: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15.5 3v3.3a4.2 4.2 0 0 0 3.1 1.4v2.9a7.1 7.1 0 0 1-4.2-1.4v5.3a5.5 5.5 0 1 1-5.5-5.5c.3 0 .6 0 .9.04V12a2.6 2.6 0 1 0 1.8 2.5V3h3.9Z" fill="currentColor"/></svg>' },
+  { key: 'xiaohongshu', name: '小红书', category: '社媒', color: '#EF4444',
+    logo_svg: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M7.2 4.2h9.6c1.55 0 2.7 1.25 2.7 2.8v10c0 1.55-1.15 2.8-2.7 2.8H7.2c-1.55 0-2.7-1.25-2.7-2.8v-10c0-1.55 1.15-2.8 2.7-2.8Zm.6 5v5.6h1.5V13.1c.4.6 1 1.05 1.8 1.05 1 0 1.6-.6 1.6-1.6v-2.35h-1.45v2.1c0 .22-.18.35-.4.35-.22 0-.4-.13-.4-.35V9.2H9.8Zm4.3 0h1.5v2.6h1.9V9.2h1.5v5.6h-1.5v-2.9h-1.9v2.9H12.1V9.2Z"/></svg>' },
+  { key: 'futu', name: '富途牛牛', category: '金融', color: '#3B82F6',
+    logo_svg: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9Zm4.3 12.5h-1.2v-1.5H8.9v1.5H7.7V8.5h8.6v7Zm-6.1-2.7h3.8V11.2h-3.8v1.6Zm0-3.1h3.8V9.7h-3.8v.9Z"/></svg>' },
+  { key: 'laohu', name: '老虎社区', category: '金融', color: '#F59E0B',
+    logo_svg: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M5.4 4h13.2A2.4 2.4 0 0 1 21 6.4v11.2a2.4 2.4 0 0 1-2.4 2.4H5.4A2.4 2.4 0 0 1 3 17.6V6.4A2.4 2.4 0 0 1 5.4 4Zm1.2 5.8v2.4h3.6v-2.4H6.6Zm6.2 0v2.4h4.6v-2.4h-4.6Zm-6.2 4.2v2.4h4.6v-2.4H6.6Zm6.2 0v2.4h4.6v-2.4h-4.6Z"/></svg>' },
+  { key: 'xueqiu', name: '雪球', category: '金融', color: '#14B8A6',
+    logo_svg: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M12 2.5A9.5 9.5 0 1 0 21.5 12 9.5 9.5 0 0 0 12 2.5Zm4.4 8.15c-.25-.25-1-.5-1.7-.25l-1.65.85c-.05.05-.1 0-.1-.05.1-.95-.05-2.25-1.3-2.95-.75-.4-1.65-.35-2.55.2-.7.45-1.1 1.1-1 1.85l.1.55c0 .05 0 .1-.05.1-1.5.9-3.65 1.15-5.35.65-.15 0-.2.1-.15.25.2 1 .8 2.1 2 2.7.35.15.5.55.6.9l.1.6c.45 1.75 2 2.9 4 2.55 1.3-.2 2.35-1.1 2.7-2.4v-.1c0-.05.05-.1.1-.05l.95.55c1.25.75 3 .65 4.1-.35 1.2-1.1 1.25-2.95-.25-4.15Z"/></svg>' },
+  { key: 'x', name: 'X(Twitter)', category: '海外', color: '#18181B',
+    logo_svg: '<svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M18.9 3H21.6l-6.05 6.9L22.5 21h-6.35l-4.95-6.45L5.55 21H2.85l6.5-7.42L2.25 3H8.8l4.48 5.9L18.9 3Zm-2.4 16.2h1.72L8.05 4.7H6.22L16.5 19.2Z"/></svg>' },
+  { key: 'youtube', name: 'YouTube', category: '海外', color: '#FF0000',
+    logo_svg: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M22 7.5a3 3 0 0 0-2.1-2.1C18.1 5 12 5 12 5s-6.1 0-7.9.4A3 3 0 0 0 2 7.5 31 31 0 0 0 1.6 12 31 31 0 0 0 2 16.5a3 3 0 0 0 2.1 2.1C5.9 19 12 19 12 19s6.1 0 7.9-.4a3 3 0 0 0 2.1-2.1 31 31 0 0 0 .4-4.5 31 31 0 0 0-.4-4.5ZM9.75 15.5V8.5L15.75 12l-6 3.5Z"/></svg>' },
+  { key: 'tiktok', name: 'TikTok', category: '海外', color: '#FE2C55',
+    logo_svg: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M16.4 3.3a4.9 4.9 0 0 1-2.7-1.3V13a5.7 5.7 0 1 1-5.7-5.7c.3 0 .6 0 .9.05v2.4a3.3 3.3 0 1 0 2.4 3.2V3.3h2.1Z"/></svg>' },
+  { key: 'linkedin', name: 'LinkedIn', category: '海外', color: '#0A66C2',
+    logo_svg: '<svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M19 3A2 2 0 0 1 21 5v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14ZM8.35 8.35H5.6V19.5h2.75V8.35ZM6.95 5.8a1.6 1.6 0 1 1 0 3.2 1.6 1.6 0 0 1 0-3.2Zm12.55 13.7V14c0-2.2-1.15-3.2-2.7-3.2a2.3 2.3 0 0 0-2.1 1.15V9.7h-2.75V19.5h2.75V14.7a1.35 1.35 0 0 1 2.7 0V19.5h2.1Z"/></svg>' },
+  { key: 'instagram', name: 'Instagram', category: '海外', color: '#E4405F',
+    logo_svg: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="18" height="18" rx="5" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor"/></svg>' },
+  { key: 'stocktwits', name: 'Stocktwits', category: '社区', color: '#4263EB',
+    logo_svg: '<svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M3 12a9 9 0 1 0 15.6-6.3L22 2l-3.7 3.4A9 9 0 0 0 3 12Zm10.2 3.6h-1.95l-1.5-1.8-2 1.8h-2l3.1-3.5-2.75-2.8h1.95l1.6 1.75 2-1.75h2l-3.1 3.2 2.6 2.35Z"/></svg>' },
+  { key: 'seekingalpha', name: 'Seeking Alpha', category: '社区', color: '#00853D',
+    logo_svg: '<svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M12 2.5A9.5 9.5 0 1 0 21.5 12 9.5 9.5 0 0 0 12 2.5ZM11.3 7.7l-2.8 7.3h1.4l.55-1.55h2.75l.5 1.55h1.4l-2.75-7.3h-1.05Zm-.5 4.1 1-2.7 1.05 2.7h-2.05Z"/></svg>' },
+  { key: 'reddit', name: 'Reddit', category: '社区', color: '#FF4500',
+    logo_svg: '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M21 11.2c0-1-.85-1.85-1.95-1.85-.65 0-1.2.3-1.55.8-1.55-1-3.65-1.65-6.05-1.7l1.2-3.75 2.55.55A2.15 2.15 0 1 0 17.4 3.95a2.15 2.15 0 0 0-2.45-.65l-2.85-.6a.5.5 0 0 0-.55.35l-1.35 4.2c-2.4.05-4.55.65-6.1 1.65A1.85 1.85 0 1 0 1.6 12.9c.05.45.4 1.1.95 1.5 0 .1 0 .1.05.2 0 3.15 3.8 5.7 8.45 5.7s8.5-2.55 8.5-5.7c0-.05.05-.1.05-.2.65-.45 1-1.1 1.05-1.55 1.15.05 2.1-.8 2.1-1.9ZM9.2 12.95A1.35 1.35 0 1 1 9.2 10.25a1.35 1.35 0 0 1 0 2.7Zm6.9 3.05c-.9.9-2.55.95-4.15.95s-3.2-.05-4.1-.95a.4.4 0 0 1 .55-.55c.65.65 2.1.9 3.55.9s2.9-.25 3.55-.9a.4.4 0 0 1 .55.55Zm-.65-1.7A1.35 1.35 0 1 1 18.1 12a1.35 1.35 0 0 1-2.65 2.25Z"/></svg>' },
 ];
+export const PLATFORM_LOGOS = {
+  wechat: PLATFORMS[0].logo_svg,
+  wechat_video: PLATFORMS[1].logo_svg,
+  douyin: PLATFORMS[2].logo_svg,
+  xiaohongshu: PLATFORMS[3].logo_svg,
+  futu: PLATFORMS[4].logo_svg,
+  laohu: PLATFORMS[5].logo_svg,
+  xueqiu: PLATFORMS[6].logo_svg,
+  x: PLATFORMS[7].logo_svg,
+  youtube: PLATFORMS[8].logo_svg,
+  tiktok: PLATFORMS[9].logo_svg,
+  linkedin: PLATFORMS[10].logo_svg,
+  instagram: PLATFORMS[11].logo_svg,
+  stocktwits: PLATFORMS[12].logo_svg,
+  seekingalpha: PLATFORMS[13].logo_svg,
+  reddit: PLATFORMS[14].logo_svg,
+};
+
 
 const OPERATORS = [
   { operator_uid: 'admin_001', operator_name: '张总（管理）', role: 'admin' },
@@ -156,7 +189,7 @@ const POST_TITLE_POOL = {
   ],
 };
 
-function seeded(seed) {
+export function seeded(seed) {
   let s = seed;
   return () => {
     s = (s * 9301 + 49297) % 233280;
@@ -185,7 +218,7 @@ const MACHINES = [
   { machine_id: 'MAC-OP3-002', machine_name: '赵运营-Mac-Studio' },
 ];
 
-function generatePostsForAccount(rand, platformKey, accountBaseViews, accountBaseLikes, daysAgo = 0) {
+export function generatePostsForAccount(rand, platformKey, accountBaseViews, accountBaseLikes, daysAgo = 0) {
   const pool = POST_TITLE_POOL[platformKey] || POST_TITLE_POOL.default;
   const out = [];
   const n = 10;
@@ -263,7 +296,7 @@ function generatePostsForAccount(rand, platformKey, accountBaseViews, accountBas
   return out;
 }
 
-function generateDailyTrend(rand, baseFollowers, baseViews30d) {
+export function generateDailyTrend(rand, baseFollowers, baseViews30d) {
   const days = 30;
   const result = [];
   let followers = Math.round(baseFollowers * 0.88);
@@ -519,6 +552,66 @@ export function generateMockData() {
     });
   }
 
+  const bombPosts = latestRecords.flatMap(r => (r.posts || []).filter(p => p.is_bomb));
+  const viralAlerts = [];
+  for (let i = 0; i < Math.min(17, bombPosts.length); i++) {
+    const p = bombPosts[i];
+    const owner = latestRecords.find(r => (r.posts || []).some(x => x.id === p.id)) || latestRecords[i % latestRecords.length];
+    const engRatio = (p.engagement_rate ?? (Number(p.likes || 0) + Number(p.comments || 0) + Number(p.shares || 0)) / Math.max(1, Number(p.views || 1)) * 100);
+    viralAlerts.push({
+      id: `viral_seed_${i}_${p.id}`,
+      post_id: p.id,
+      post_title: p.title,
+      post_summary: p.summary,
+      post_url: p.url,
+      cover: p.cover,
+      platform_key: owner?.platform_key || owner?.platform || 'xiaohongshu',
+      platform: owner?.platform || '小红书',
+      record_id: owner?.id,
+      account_name: owner?.account || '科技数码观察',
+      account_url: owner?.url,
+      operator_uid: owner?.assigned_operator_uid || 'op_002',
+      operator_name: owner?.operator_name || '王运营',
+      created_at: dayjs().subtract(i * (8 + Math.floor(rand() * 28)), 'hour').toISOString(),
+      views: Number(p.views || 0),
+      likes: Number(p.likes || 0),
+      comments: Number(p.comments || 0),
+      shares: Number(p.shares || 0),
+      engagement_rate: engRatio,
+      growth_1h: Number(((2 + rand() * 18) * (i < 5 ? 1.6 : 1)).toFixed(2)),
+      growth_delta: Math.round(10 + rand() * 260),
+      is_seed: true,
+    });
+  }
+  while (viralAlerts.length < 17) {
+    const k = viralAlerts.length;
+    const keysPool = ['xiaohongshu', 'x', 'xueqiu', 'wechat_video', 'youtube', 'tiktok', 'linkedin', 'reddit', 'douyin', 'stocktwits', 'seekingalpha'];
+    const pk = keysPool[k % keysPool.length];
+    const m = PLATFORM_META[pk];
+    viralAlerts.push({
+      id: `viral_seed_fill_${k}`,
+      post_id: `post_fill_${k}`,
+      post_title: POST_TITLE_POOL[pk]?.[k % (POST_TITLE_POOL[pk]?.length || POST_TITLE_POOL.default.length)] || POST_TITLE_POOL.default[k % POST_TITLE_POOL.default.length],
+      post_summary: `${POST_TITLE_POOL.default[k % POST_TITLE_POOL.default.length]} — 详细内容展示在原文中。`,
+      post_url: `https://example.com/viral/${k}`,
+      platform_key: pk,
+      platform: m?.name || pk,
+      account_name: latestRecords[k % latestRecords.length]?.account || `${m?.name || pk}达人`,
+      operator_uid: ['op_001', 'op_002', 'op_003'][k % 3],
+      operator_name: ['李运营', '王运营', '赵运营'][k % 3],
+      created_at: dayjs().subtract(k * (10 + Math.floor(rand() * 22)), 'hour').toISOString(),
+      views: 80000 + Math.floor(rand() * 920000),
+      likes: 2000 + Math.floor(rand() * 90000),
+      comments: 500 + Math.floor(rand() * 15000),
+      shares: 300 + Math.floor(rand() * 12000),
+      engagement_rate: Number((3 + rand() * 14).toFixed(2)),
+      growth_1h: Number((2 + rand() * 16).toFixed(2)),
+      growth_delta: Math.round(15 + rand() * 260),
+      is_seed: true,
+    });
+  }
+  viralAlerts.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
   return {
     currentUser: OPERATORS[0],
     operators: OPERATORS,
@@ -535,6 +628,7 @@ export function generateMockData() {
     trend,
     collectorMachines,
     aiDiagnosis,
+    viralAlerts,
     platforms: PLATFORMS,
     categories: [
       { key: 'all', name: '全部' },
@@ -596,6 +690,8 @@ export function applyRBACFilter(data, operatorUid) {
     });
     return row;
   });
+  const aiDiagnosis = (data.aiDiagnosis || []).filter(d => (d.target_ids || []).some(tid => latestRecords.some(r => r.id === tid)));
+  const viralAlerts = (data.viralAlerts || []).filter(v => v.operator_uid === operatorUid);
   return {
     ...data,
     currentUser,
@@ -610,6 +706,8 @@ export function applyRBACFilter(data, operatorUid) {
     platformTraffic,
     operatorStats,
     trend: trend.length ? trend : (data.trend || []),
+    aiDiagnosis,
+    viralAlerts,
   };
 }
 

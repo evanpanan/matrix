@@ -1,0 +1,39 @@
+# IDE
+.trae/
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.venv/
+venv/
+env/
+.python-version
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Database & secrets
+server/matrix.db
+server/matrix.db-shm
+server/matrix.db-wal
+server/tests/_test_auth_tmp.db
+server/tests/_test_auth_tmp.db-shm
+server/tests/_test_auth_tmp.db-wal
+server/.env
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

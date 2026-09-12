@@ -1,0 +1,32 @@
+"""
+示例：Python Collector 配置文件 YAML
+用法：python scripts/python_collector.py --mode chrome --config scripts/collector_config.example.yaml
+"""
+
+api_base: "http://localhost:8000"
+
+operator_uid: "op_001"
+operator_name: "李运营"
+machine_name: "李运营 - 运营主机 01"
+
+webhook_url: ""  # 可选，填飞书 / 钉钉 / Slack Webhook 地址
+
+# 要采集的目标页面（建议每个账号单独开一张指纹浏览器环境）
+urls:
+  # ---------- 国内社媒 ----------
+  - "https://creator.xiaohongshu.com"          # 小红书创作者中心
+  - "https://creator.douyin.com/creator-micro/home"   # 抖音创作者中心
+  - "https://mp.weixin.qq.com/"                # 微信公众号后台
+  # ---------- 金融社区 ----------
+  - "https://xueqiu.com/u/0000000000"          # 雪球个人主页 (替换你的 UID)
+  - "https://futu.moomoo.com/"                 # 富途牛牛
+  # ---------- 海外平台 ----------
+  - "https://x.com/elonmusk"                   # X (Twitter)
+  - "https://stocktwits.com/symbol/NVDA"       # Stocktwits NVDA 讨论页
+  - "https://www.reddit.com/r/wallstreetbets"  # Reddit WSB
+
+# 以下字段会根据 mode 被 CLI 覆盖，仅作备忘
+# adspower user_id
+user_id: ""
+# hubstudio profile_id
+profile_id: ""
