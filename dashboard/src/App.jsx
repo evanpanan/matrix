@@ -18,7 +18,7 @@ import {
   Server, Flame, Clock, X, Layers, Heart, MessageCircle, Repeat2, ArrowUpRight, Building2,
   Sparkles, Copy, Cpu, AlertOctagon, BellRing, User, LogOut, KeyRound,
   Puzzle, Code2, FileJson, FileCode, FileCode2, Package, BookOpen, Github, CheckCircle2, ArrowLeft, Settings, Check, Terminal, FolderOpen, Play,
-  Camera, XCircle, Pencil, Save, Theater, Trash2, PlusCircle,
+  Camera, XCircle, Pencil, Save, Theater, Trash2, PlusCircle, Trophy,
 } from 'lucide-react';
 
 import {
@@ -26,7 +26,7 @@ import {
   initAuth, loginWithPassword, registerWithInvite, logout, ssoPasteToken, fetchSsoConfig, adminApi, subscribeAuth, getAuthSnapshot,
   fetchMe, updateMe, changePassword, updateRecord,
   listCollectorTokens, listOperators, createCollectorToken, revokeCollectorToken, adminListSystemFlags, adminPatchSystemFlags,
-  listCollectorMachines, adminSiteOverview,
+  listCollectorMachines, adminSiteOverview, adminClearData, adminDeleteAccount,
   getLocalMockOverride, setLocalMockOverride,
 } from './lib/api.js';
 import AccountDetailDrawer from './AccountDetailDrawer.jsx';
@@ -337,7 +337,22 @@ function RegisterPage({ onRegisterOk, onGoLogin, showToast: externalToast }) {
   );
 }
 
-function UserAvatar({ name, size = 32, gradient }) {
+function UserAvatar({ name, size = 32, gradient, src, dataUrl }) {
+  const imageUrl = dataUrl || src;
+  if (imageUrl) {
+    return (
+      <img
+        src={imageUrl}
+        alt={name || ''}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        crossOrigin="anonymous"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+        style={{ width: size, height: size, background: '#f4f4f5' }}
+        className={`shrink-0 rounded-xl object-cover`}
+      />
+    );
+  }
   const pool = gradient || AVATAR_POOL[(name || '').length % AVATAR_POOL.length];
   const [c1, c2] = pool.split(',');
   const initial = (name || '?').slice(0, 1).toUpperCase();
@@ -1199,7 +1214,22 @@ let PlatformTag = function PlatformTag({ name, size = 'md' }) {
 };
 PlatformTag = React.memo(PlatformTag);
 
-let Avatar = function Avatar({ gradient, name, size = 40 }) {
+let Avatar = function Avatar({ gradient, name, size = 40, src, dataUrl }) {
+  const imageUrl = dataUrl || src;
+  if (imageUrl) {
+    return (
+      <img
+        src={imageUrl}
+        alt={name || ''}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        crossOrigin="anonymous"
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+        className="rounded-2xl object-cover shrink-0 shadow-inner"
+        style={{ width: size, height: size, background: '#f4f4f5' }}
+      />
+    );
+  }
   const [a, b] = (gradient || '#6366f1,#8b5cf6').split(',');
   return (
     <div
@@ -1344,6 +1374,7 @@ function ProfileView({ onBack, currentUser, showToast }) {
       const r = await updateMe(patch);
       if (r?.ok !== false) {
         showToast('已保存个人资料', 'success');
+        try { await initAuth(); } catch {}
         load();
       } else {
         showToast?.('保存失败：' + ((r?.detail) || r?.message || r?.error || '未知错误'), 'error');
@@ -2717,13 +2748,31 @@ A: 插件弹窗内「归属运营」可直接修改并保存；如需绑定采�
   );
 }
 
-function UserSwitcher({ value, users, onChange, currentUser, isAdmin, onGoAdmin, onLogout, onProfile, onOpenCollector, mockEnabled, onToggleMock }) {
+function UserSwitcher({ value, users, onChange, currentUser, isAdmin, onGoAdmin, onLogout, onProfile, onOpenCollector, mockEnabled, onToggleMock, onClearAllData, onDeleteAccount }) {
   const [open, setOpen] = useState(false);
+  const [clearBusy, setClearBusy] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [inviteRole, setInviteRole] = useState('operator');
   const [inviteDays, setInviteDays] = useState('7');
   const [busy, setBusy] = useState(false);
   const [mockBusy, setMockBusy] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const menuRef = useRef(null);
+  const containerRef = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setOpen(false);
+        setShowInvite(false);
+        setConfirmClear(false);
+      }
+    };
+    document.addEventListener('mousedown', onDown, true);
+    const onKey = (e) => { if (e.key === 'Escape') { setOpen(false); setShowInvite(false); setConfirmClear(false); } };
+    document.addEventListener('keydown', onKey, true);
+    return () => { document.removeEventListener('mousedown', onDown, true); document.removeEventListener('keydown', onKey, true); };
+  }, [open]);
   const current = users.find(u => u.operator_uid === value) || users[0];
   const submitInvite = async () => {
     setBusy(true);
@@ -2732,21 +2781,37 @@ function UserSwitcher({ value, users, onChange, currentUser, isAdmin, onGoAdmin,
       setOpen(false); setShowInvite(false);
     } finally { setBusy(false); }
   };
+  const handleClearAll = async () => {
+    if (!confirmClear) { setConfirmClear(true); return; }
+    if (clearBusy) return;
+    setClearBusy(true);
+    try {
+      await onClearAllData?.();
+      setOpen(false);
+      setConfirmClear(false);
+    } finally { setClearBusy(false); }
+  };
   const handleToggleMock = async () => {
     if (mockBusy) return;
     setMockBusy(true);
     try { await onToggleMock?.(); } finally { setTimeout(() => setMockBusy(false), 350); }
   };
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       <button
         onClick={() => setOpen(v => !v)}
         className="h-11 sm:h-12 max-sm:h-11 pl-2 pr-3 rounded-2xl border border-black/[0.06] bg-white hover:bg-ink-50/60 transition flex items-center gap-2.5 text-sm font-medium text-ink-700 shadow-sm shrink-0 min-w-[170px] sm:min-w-[190px] max-sm:min-w-[120px] overflow-hidden"
       >
-        <UserAvatar name={currentUser?.username || current?.operator_name} size={30} gradient={currentUser ? (AVATAR_POOL[(currentUser.username || '').length % AVATAR_POOL.length]) : undefined} />
+        <UserAvatar
+          name={currentUser?.username || current?.operator_name}
+          size={30}
+          gradient={currentUser ? (currentUser.avatar_gradient || AVATAR_POOL[(currentUser.username || '').length % AVATAR_POOL.length]) : undefined}
+          src={currentUser?.avatar_url || undefined}
+          dataUrl={currentUser?.avatar_data_url || undefined}
+        />
         <div className="text-left leading-tight max-sm:hidden flex-1 min-w-0">
           <div className="text-[13px] font-semibold text-ink-800 flex items-center gap-1.5 truncate">
-            {currentUser?.username || current?.operator_name}
+            {currentUser?.display_name || currentUser?.username || current?.operator_name}
             {isAdmin && <span className="text-[9px] font-bold font-mono px-1.5 py-[2px] rounded-md bg-gradient-to-br from-amber-500 to-orange-600 text-white shrink-0">ADMIN</span>}
             {!isAdmin && currentUser?.role && <RoleBadge role={currentUser.role} />}
           </div>
@@ -2769,12 +2834,19 @@ function UserSwitcher({ value, users, onChange, currentUser, isAdmin, onGoAdmin,
             exit={{ opacity: 0, y: -6, scale: 0.98 }}
             transition={{ duration: 0.2 }}
             className="absolute right-0 max-sm:right-0 mt-2 z-20 w-[320px] max-sm:w-[min(280px,92vw)] bg-white rounded-2xl border border-black/[0.06] shadow-card overflow-hidden"
+            ref={menuRef}
           >
             <div className="px-4 py-3 border-b border-black/[0.04] bg-gradient-to-br from-indigo-50 via-violet-50/50 to-white">
               <div className="flex items-center gap-3">
-                <UserAvatar name={currentUser?.username || 'U'} size={40} gradient={currentUser ? (AVATAR_POOL[(currentUser.username || '').length % AVATAR_POOL.length]) : undefined} />
+                <UserAvatar
+                  name={currentUser?.username || 'U'}
+                  size={40}
+                  gradient={currentUser ? (currentUser.avatar_gradient || AVATAR_POOL[(currentUser.username || '').length % AVATAR_POOL.length]) : undefined}
+                  src={currentUser?.avatar_url || undefined}
+                  dataUrl={currentUser?.avatar_data_url || undefined}
+                />
                 <div className="min-w-0 flex-1">
-                  <div className="font-bold text-ink-800 text-[14px] truncate flex items-center gap-1.5">{currentUser?.username || '演示模式（未登录）'}{isAdmin && <span className="text-[9px] font-bold font-mono px-1.5 py-[2px] rounded-md bg-gradient-to-br from-amber-500 to-orange-600 text-white">ADMIN</span>}</div>
+                  <div className="font-bold text-ink-800 text-[14px] truncate flex items-center gap-1.5">{currentUser?.display_name || currentUser?.username || '演示模式（未登录）'}{isAdmin && <span className="text-[9px] font-bold font-mono px-1.5 py-[2px] rounded-md bg-gradient-to-br from-amber-500 to-orange-600 text-white">ADMIN</span>}</div>
                   <div className="text-[11.5px] text-ink-500 truncate font-mono mt-0.5">{currentUser?.email || currentUser?.operator_name ? (currentUser.email ? currentUser.email : currentUser.operator_name) : '后端未启用鉴权 · mock 数据'}</div>
                 </div>
               </div>
@@ -2805,54 +2877,12 @@ function UserSwitcher({ value, users, onChange, currentUser, isAdmin, onGoAdmin,
                     </div>
                   </button>
                 </div>
-                <div className="px-4 py-2 border-b border-black/[0.04] bg-gradient-to-r from-violet-50/60 via-indigo-50/40 to-transparent">
-                  <button
-                    onClick={() => { onOpenCollector?.(); setOpen(false); }}
-                    className="w-full flex items-center gap-3 text-left group"
-                  >
-                    <div className="w-9 h-9 rounded-xl shrink-0 flex items-center justify-center shadow-sm bg-gradient-to-br from-violet-500 to-indigo-600">
-                      <KeyRound size={16} className="text-white" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[13px] font-bold text-ink-800 flex items-center gap-1.5">
-                        🔑 采集器配置 & 授权 Token
-                        <span className="text-[9.5px] font-bold px-1.5 py-[2px] rounded-md bg-violet-100 text-violet-700">推荐</span>
-                      </div>
-                      <div className="text-[10.5px] text-ink-500 mt-0.5">
-                        生成采集器 Token → 粘贴到 Chrome 插件或 Python 脚本，开始双向匹配 & 真实入库
-                      </div>
-                    </div>
-                    <ChevronRight size={16} className="text-ink-400 group-hover:text-violet-600 transition shrink-0" />
-                  </button>
-                </div>
-                <div className="px-4 py-2 border-b border-black/[0.04] bg-ink-50/40">
-                  <div className="text-[11px] font-semibold text-ink-500 uppercase tracking-wider">切换运营档案（数据视角）</div>
-                </div>
-                <div className="py-1 max-h-[260px] overflow-y-auto">
-                  {users.map(u => (
-                    <button
-                      key={u.operator_uid}
-                      onClick={() => { onChange(u.operator_uid); setOpen(false); }}
-                      className={`w-full px-3 py-2.5 flex items-center gap-3 transition hover:bg-ink-50 ${u.operator_uid === value ? 'bg-indigo-50/60' : ''}`}
-                    >
-                      <UserAvatar name={u.operator_name} size={32} />
-                      <div className="flex-1 text-left min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-ink-800 text-[13px] truncate">{u.operator_name}</span>
-                          <RoleBadge role={u.role} />
-                        </div>
-                        <div className="text-[11px] text-ink-400 mt-0.5 font-mono truncate">{u.operator_uid}</div>
-                      </div>
-                      {u.operator_uid === value && <div className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />}
-                    </button>
-                  ))}
-                </div>
                 <div className="px-2 py-2 border-t border-black/[0.04] bg-ink-50/30 space-y-1">
                   <button
                     onClick={() => { onProfile?.(); setOpen(false); }}
                     className="w-full h-9 px-3 rounded-lg text-[12.5px] font-semibold text-ink-700 hover:bg-white hover:text-indigo-700 transition flex items-center gap-2"
                   >
-                    <User size={13} />个人资料与安全
+                    <User size={13} />个人资料、安全 & 采集器 Token
                   </button>
                   {isAdmin && (
                     <button
@@ -2864,10 +2894,15 @@ function UserSwitcher({ value, users, onChange, currentUser, isAdmin, onGoAdmin,
                   )}
                   {isAdmin && (
                     <button
-                      onClick={() => setShowInvite(true)}
-                      className="w-full h-9 px-3 rounded-lg text-[12.5px] font-semibold text-ink-700 hover:bg-white hover:text-violet-700 transition flex items-center gap-2"
+                      onClick={handleClearAll}
+                      disabled={clearBusy}
+                      className="w-full h-9 px-3 rounded-lg text-[12.5px] font-semibold text-rose-700 hover:bg-rose-50/70 hover:text-rose-700 transition flex items-center gap-2 disabled:opacity-70"
                     >
-                      <Sparkles size={13} />生成邀请码 · 16 位
+                      <Trash2 size={13} />
+                      {confirmClear
+                        ? (clearBusy ? '清空数据中…' : '⚠️ 再次点击：确认清空全部数据（不可恢复）')
+                        : '清空全部监测数据'}
+                      <span className="ml-auto text-[10px] font-bold text-rose-500">ADMIN</span>
                     </button>
                   )}
                   <div className="h-px bg-black/[0.04] my-1" />
@@ -3409,7 +3444,7 @@ function DataTable({ records, showOperatorCols = true, onRowClick, onSelectPlatf
               >
                 <td className="px-4 py-3.5">
                   <div className="flex items-center gap-3 min-w-[200px]">
-                    <Avatar gradient={r.avatar_gradient} name={r.account} />
+                    <Avatar gradient={r.avatar_gradient} name={r.account} src={r.avatar_url} dataUrl={r.avatar_data_url} />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-semibold text-ink-900 truncate">{r.account}</span>
@@ -4315,7 +4350,7 @@ export default function App() {
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
-  const [currentUid, setCurrentUid] = useState('admin_001');
+  const [currentUid, setCurrentUid] = useState(null);
   const [category, setCategory] = useState('all');
   const [platform, setPlatform] = useState('all');
   const [entityType, setEntityType] = useState('all');
@@ -4380,23 +4415,24 @@ export default function App() {
 
   useEffect(() => {
     const deriveAuth = (snap) => {
-      const isAuth = snap?.isAuthenticated ?? (snap?.mode === 'jwt' && !!snap?.user);
+      const hasUser = !!(snap?.currentUser ?? snap?.user ?? null);
+      const isAuth = !!snap?.isAuthenticated || hasUser || (snap?.mode === 'jwt' && hasUser);
       const user = snap?.currentUser ?? snap?.user ?? null;
-      const requireAuth = !!snap?.requireAuth;
+      const requireAuth = snap?.requireAuth !== false;
       return { isAuth, user, requireAuth };
     };
     initAuth().then(snap => {
       const { isAuth, user, requireAuth } = deriveAuth(snap);
       setIsAuthenticated(isAuth);
       setCurrentUser(user);
-      setCurrentUid(user?.operator_uid || 'admin_001');
+      setCurrentUid(user?.operator_uid || null);
       setRequireAuthMode(requireAuth);
     }).finally(() => setAuthInitialized(true));
     const unsub = subscribeAuth(snap => {
       const { isAuth, user } = deriveAuth(snap);
       setIsAuthenticated(isAuth);
       setCurrentUser(user);
-      setCurrentUid(user?.operator_uid || 'admin_001');
+      setCurrentUid(user?.operator_uid || null);
     });
     const handleRequireLogin = () => {
       setPageView('login');
@@ -4461,13 +4497,15 @@ export default function App() {
 
   const navigateToOperator = useCallback((uid, name) => {
     if (!uid) return;
+    const adminScope = !!(currentUser?.role === 'admin' || data?.currentUser?.role === 'admin');
+    if (!adminScope && uid !== currentUid) { showToast('正式版仅支持查看本人负责范围', 'info'); return; }
     setEffectivePlatform(null);
     setSelectedOperatorUid(uid);
     setDetailRecord(null);
     setShowViralHistory(false);
     setShowDownloads(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+  }, [currentUid, showToast, currentUser?.role, data?.currentUser?.role]);
 
   const navigateToPlatform = useCallback((keyOrName, name) => {
     if (!keyOrName) return;
@@ -4481,10 +4519,74 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [platformNameToKey]);
 
+  const viralShownIdsRef = useRef(new Set());
+  const viralDismissedIdsRef = useRef(new Set());
+
+  useEffect(() => {
+    try {
+      const dismissed = JSON.parse(localStorage.getItem('mx_viral_dismissed_ids') || '[]');
+      if (Array.isArray(dismissed)) viralDismissedIdsRef.current = new Set(dismissed);
+      const shown = JSON.parse(localStorage.getItem('mx_viral_shown_ids') || '[]');
+      if (Array.isArray(shown)) viralShownIdsRef.current = new Set(shown);
+    } catch { /* noop */ }
+  }, []);
+
+  const rememberViralShown = useCallback((post) => {
+    const postKey = (post?.url || post?.title || post?.id || '').trim();
+    if (!postKey) return false;
+    if (viralDismissedIdsRef.current.has(postKey)) return false;
+    if (viralShownIdsRef.current.has(postKey)) return false;
+    viralShownIdsRef.current.add(postKey);
+    if (viralShownIdsRef.current.size > 800) {
+      const arr = Array.from(viralShownIdsRef.current).slice(-500);
+      viralShownIdsRef.current = new Set(arr);
+    }
+    try { localStorage.setItem('mx_viral_shown_ids', JSON.stringify(Array.from(viralShownIdsRef.current).slice(-800))); } catch { /* noop */ }
+    return true;
+  }, []);
+
+  const dismissViralAlertForever = useCallback((alert) => {
+    const postKey = (alert?.post?.url || alert?.post?.title || alert?.post?.id || alert?.id || '').trim();
+    if (postKey) {
+      viralDismissedIdsRef.current.add(postKey);
+      if (viralDismissedIdsRef.current.size > 600) {
+        const arr = Array.from(viralDismissedIdsRef.current).slice(-400);
+        viralDismissedIdsRef.current = new Set(arr);
+      }
+      try { localStorage.setItem('mx_viral_dismissed_ids', JSON.stringify(Array.from(viralDismissedIdsRef.current).slice(-600))); } catch { /* noop */ }
+    }
+  }, []);
+
+  const uniqueViralHistoryKey = (it) => {
+    const p = it?.post || it;
+    const account = it?.account || '';
+    const k = (p?.url || p?.title || p?.id || '') + '|' + account;
+    return k.trim();
+  };
+
   const pushViralToHistory = useCallback((alert) => {
     if (!alert) return;
-    setViralHistory(prev => [alert, ...prev].slice(0, VIRAL_HISTORY_MAX));
+    setViralHistory(prev => {
+      const seen = new Set(prev.map(uniqueViralHistoryKey));
+      const k = uniqueViralHistoryKey(alert);
+      if (seen.has(k)) return prev;
+      return [alert, ...prev].slice(0, VIRAL_HISTORY_MAX);
+    });
   }, []);
+
+  useEffect(() => {
+    setViralHistory(prev => {
+      if (!prev || prev.length === 0) return prev;
+      const m = new Map();
+      for (const it of prev) {
+        const k = uniqueViralHistoryKey(it);
+        if (!m.has(k)) m.set(k, it);
+      }
+      const uniq = Array.from(m.values()).slice(0, VIRAL_HISTORY_MAX);
+      if (uniq.length === prev.length) return prev;
+      return uniq;
+    });
+  }, [data?.latestRecords?.length]);
 
   useEffect(() => {
     if (!liveMode || !data?.latestRecords) return;
@@ -4493,7 +4595,7 @@ export default function App() {
     let autoDismissId = 0;
     function schedule() {
       if (cancelled) return;
-      const delay = 15000 + Math.random() * 15000;
+      const delay = 30000 + Math.random() * 30000;
       scheduleId = setTimeout(() => {
         if (cancelled) return;
         setData(prev => {
@@ -4508,7 +4610,11 @@ export default function App() {
             const sb = (b.is_bomb ? 50 : 0) + Number(b.engagement_rate || 0) * 3 + Number(b.views || 0) / 50000;
             return sb - sa;
           });
-          const base = candidates[0] || candidates[Math.floor(Math.random() * candidates.length)];
+          let base = null;
+          for (const c of candidates) {
+            if (rememberViralShown(c)) { base = c; break; }
+          }
+          if (!base) { schedule(); return prev; }
           const surgeIndex = Math.floor(Math.random() * 4);
           const engagementDelta = +(0.25 + Math.random() * 1.1 + surgeIndex * 0.1).toFixed(2);
           const viewBoost = Math.floor(500 + Math.random() * 5000) * (1 + surgeIndex);
@@ -4564,30 +4670,22 @@ export default function App() {
             return alert;
           });
           setFlashIds(new Set([boosted.id || 'x']));
+          schedule();
           return { ...prev, latestRecords: newRecords };
         });
-        schedule();
       }, delay);
     }
-    const initialId = setTimeout(schedule, 4500);
+    const initialId = setTimeout(schedule, 10000);
     return () => {
       cancelled = true;
       clearTimeout(scheduleId);
       clearTimeout(initialId);
       clearTimeout(autoDismissId);
     };
-  }, [liveMode, data?.latestRecords?.length, setData, pushViralToHistory]);
+  }, [liveMode, data?.latestRecords?.length, setData, pushViralToHistory, rememberViralShown]);
 
-  const viralAutoDemoRef = useRef(false);
   useEffect(() => {
-    if (viralAutoDemoRef.current || !isAuthenticated) return;
-    viralAutoDemoRef.current = true;
-    const firstTimeout = setTimeout(() => {
-      setShowViralHistory(true);
-      const closeTimeout = setTimeout(() => setShowViralHistory(false), 1600);
-      return () => clearTimeout(closeTimeout);
-    }, 7000);
-    return () => clearTimeout(firstTimeout);
+    // 登录成功后隐藏演示，不再自动弹 ViralHistoryDrawer
   }, [isAuthenticated]);
 
   const loadData = useCallback(async (uid, options = {}) => {
@@ -4636,7 +4734,7 @@ export default function App() {
 
   useEffect(() => {
     loadData(currentUid);
-    const t = setInterval(() => loadData(currentUid, { silent: true }), 5 * 60 * 1000);
+    const t = setInterval(() => loadData(currentUid, { silent: true }), 30 * 1000);
     return () => clearInterval(t);
   }, [loadData, currentUid]);
 
@@ -4650,18 +4748,50 @@ export default function App() {
   const toggleMock = useCallback(async () => {
     try {
       const nextVal = !mockEnabled;
-      if (!hasJwt) {
+      if (!hasJwt || currentUser?.role !== 'admin') {
         setLocalMockOverride(nextVal);
-        showToast(nextVal ? '模拟数据已启用' : '模拟数据已暂停，现在仅显示真实采集数据', nextVal ? 'success' : 'warning');
+        showToast(nextVal ? '模拟数据已启用（仅本机前端生效）' : '模拟数据已暂停，现在仅显示真实采集数据', nextVal ? 'success' : 'warning');
         await loadData(currentUid, { force: true });
         return;
       }
-      const r = await adminPatchSystemFlags([{ key: 'mock_enabled', value: nextVal ? true : false }]);
-      if (r && r.ok === false) throw new Error(r.detail || r.message || '设置失败');
-      showToast(nextVal ? '模拟数据已启用' : '模拟数据已暂停，现在仅显示真实采集数据', nextVal ? 'success' : 'warning');
+      try {
+        const r = await adminPatchSystemFlags([{ key: 'mock_enabled', value: nextVal ? true : false }]);
+        if (r && r.ok === false) throw new Error(r.detail || r.message || '设置失败');
+        showToast(nextVal ? '模拟数据已启用' : '模拟数据已暂停，现在仅显示真实采集数据', nextVal ? 'success' : 'warning');
+      } catch (e) {
+        setLocalMockOverride(nextVal);
+        showToast(
+          nextVal
+            ? `模拟数据已启用（仅本机生效，服务端设置失败：${e.message || '无权限'}）`
+            : `模拟数据已暂停（仅本机生效，服务端设置失败：${e.message || '无权限'}）`,
+          nextVal ? 'success' : 'warning'
+        );
+      }
       await loadData(currentUid, { force: true });
     } catch (e) { showToast(e.message || '操作失败，请稍后重试', 'error'); }
-  }, [mockEnabled, hasJwt, showToast, currentUid, loadData]);
+  }, [mockEnabled, hasJwt, currentUser?.role, showToast, currentUid, loadData]);
+
+  const handleClearAllData = useCallback(async () => {
+    if (!hasJwt) { showToast('未登录无法清空数据', 'error'); return; }
+    try {
+      const r = await adminClearData('all');
+      if (r && r.ok === false) throw new Error(r.detail || r.message || '清空失败');
+      showToast('全部监测数据已清空（重新采集将从零开始）', 'success');
+      await loadData(currentUid, { force: true });
+    } catch (e) { showToast(e.message || '清空失败，请稍后重试', 'error'); }
+  }, [hasJwt, showToast, currentUid, loadData]);
+
+  const handleDeleteAccount = useCallback(async (accountId, { onlyRecords = false } = {}) => {
+    if (!hasJwt || !accountId) return;
+    try {
+      const r = await adminDeleteAccount(accountId, { onlyRecords });
+      if (r && r.ok === false) throw new Error(r.detail || r.message || '删除失败');
+      showToast(onlyRecords ? '该账号数据记录已清空' : `账号已删除：${r?.account_name || accountId}`, 'success');
+      await loadData(currentUid, { force: true });
+      return r;
+    } catch (e) { showToast(e.message || '删除失败，请稍后重试', 'error'); }
+    return null;
+  }, [hasJwt, showToast, currentUid, loadData]);
 
   useEffect(() => {
     window.__genInvite = async (body) => {
@@ -4675,12 +4805,13 @@ export default function App() {
     return () => { delete window.__genInvite; };
   }, [showToast]);
 
+  const isCurrentAdmin = !!(currentUser?.role === 'admin' || data?.currentUser?.role === 'admin');
+
   const effectiveScopeUid = useMemo(() => {
-    if (!data) return null;
-    if (!isAdmin) return currentUid;
     if (selectedOperatorUid) return selectedOperatorUid;
-    return null;
-  }, [data, isAdmin, currentUid, selectedOperatorUid]);
+    if (isCurrentAdmin) return null;
+    return currentUid;
+  }, [currentUid, isCurrentAdmin, selectedOperatorUid]);
 
   const currentView = useMemo(() => {
     if (effectivePlatform) return 'platform';
@@ -4892,7 +5023,7 @@ export default function App() {
     groups.push({
       key: 'view', label: '视图与管理', icon: Shield, color: 'from-emerald-500 to-teal-500', dot: 'bg-emerald-500',
       items: [
-        { id: 'cmd-home', action: 'home', title: '返回首页（总览）', desc: '回到管理员全景 / 个人视角首页视图', icon: LayoutGrid, kbd: '⌘↑', keywords: '首页 home 总览 overview 回去 返回 dashboard' },
+        { id: 'cmd-home', action: 'home', title: '返回首页（总览）', desc: '回到矩阵数据总览首页视图', icon: LayoutGrid, kbd: '⌘↑', keywords: '首页 home 总览 overview 回去 返回 dashboard' },
         { id: 'cmd-admin', action: 'admin', title: '用户与权限后台', desc: isAdmin ? '管理用户 / 邀请码 / 审计日志' : '无权限（当前非管理员）', icon: Shield, keywords: '后台 管理 admin 用户 权限 角色 role user invite 邀请码 audit' },
         { id: 'cmd-export-raw', action: 'rawcsv', title: '导出全量 CSV（后端原数据）', desc: '从后端 /api/v1/export/csv 拉取未经前端过滤的全量原始数据', icon: FileCode, keywords: '全量 raw 导出 csv 原始 data 后端 backend api' },
       ],
@@ -5047,8 +5178,7 @@ export default function App() {
       return (
         <nav className="mb-2 inline-flex items-center gap-1.5 text-[12px] text-ink-500">
           <Layers size={12} className="text-violet-500" />
-          <span className="font-semibold text-ink-700">{isAdmin ? '矩阵数据总览' : `我的负责范围 · ${data?.currentUser?.operator_name || ''}`}</span>
-          {isAdmin && <span className="text-[10.5px] font-medium px-1.5 py-0.5 rounded-md bg-violet-50 text-violet-700 border border-violet-100/70">管理员全景</span>}
+          <span className="font-semibold text-ink-700">矩阵数据总览</span>
         </nav>
       );
     }
@@ -5638,7 +5768,19 @@ export default function App() {
                         <ExternalLink size={14} />
                       </button>
                     )}
-                    <div className="h-32 relative" style={{ background: `linear-gradient(135deg, ${(p?.cover_gradient || '#6366f1,#8b5cf6').split(',')[0]}, ${(p?.cover_gradient || '#6366f1,#8b5cf6').split(',')[1]})` }}>
+                    <div className="h-32 relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${(p?.cover_gradient || '#6366f1,#8b5cf6').split(',')[0]}, ${(p?.cover_gradient || '#6366f1,#8b5cf6').split(',')[1]})` }}>
+                      {(p.cover || (p.images && p.images[0])) && (
+                        <img
+                          src={p.cover || p.images[0]}
+                          alt={p.title || ''}
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                          crossOrigin="anonymous"
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                          className="absolute inset-0 w-full h-full object-cover"
+                          style={{ background: '#f4f4f5' }}
+                        />
+                      )}
                       <div className="absolute top-2.5 left-2.5 w-7 h-7 rounded-lg bg-white/90 backdrop-blur-sm text-[11px] font-bold flex items-center justify-center text-ink-700 shadow-sm">#{i + 1}</div>
                       {p.is_bomb && (
                         <span className="absolute top-2.5 right-2.5 inline-flex items-center gap-0.5 text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white shadow">
@@ -5675,13 +5817,13 @@ export default function App() {
     const snap = getAuthSnapshot();
     const isAuth = snap?.isAuthenticated ?? (snap?.mode === 'jwt' && !!snap?.user);
     const user = snap?.currentUser ?? snap?.user ?? null;
-    const uid = user?.operator_uid || 'admin_001';
+    const uid = user?.operator_uid || null;
     setIsAuthenticated(isAuth);
     setCurrentUser(user);
     setCurrentUid(uid);
     setPageView('dashboard');
     showToast('登录成功 · 欢迎回来', 'success');
-    loadData(uid);
+    if (uid) loadData(uid);
   }, [showToast, loadData]);
 
   const handleRegOk = useCallback((msg) => {
@@ -5689,12 +5831,12 @@ export default function App() {
     const snap = getAuthSnapshot();
     const isAuth = snap?.isAuthenticated ?? (snap?.mode === 'jwt' && !!snap?.user);
     const user = snap?.currentUser ?? snap?.user ?? null;
-    const uid = user?.operator_uid || 'admin_001';
+    const uid = user?.operator_uid || null;
     setIsAuthenticated(isAuth);
     setCurrentUser(user);
     setCurrentUid(uid);
     setPageView('dashboard');
-    loadData(uid);
+    if (uid) loadData(uid);
   }, [showToast, loadData]);
 
   if (!authInitialized) {
@@ -5713,7 +5855,7 @@ export default function App() {
     );
   }
 
-  const needLogin = requireAuthMode && !isAuthenticated;
+  const needLogin = !isAuthenticated;
   const renderLogin = pageView === 'login' || needLogin;
   const renderRegister = pageView === 'register';
   const renderAdmin = pageView === 'admin' && isAuthenticated && isAdmin;
@@ -5922,9 +6064,7 @@ export default function App() {
               <div className="sm:hidden text-[10px] text-ink-500 -mt-0.5 truncate">v3.4 · 监测看板</div>
             </div>
             <div className="ml-2 sm:ml-3 hidden md:block">
-              {isAdmin
-                ? <span className="inline-flex items-center gap-1 sm:gap-1.5 text-[10.5px] sm:text-[11px] font-bold px-2 sm:px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 border border-violet-100/80 whitespace-nowrap"><Shield size={11} className="sm:w-3 sm:h-3" />管理员全景</span>
-                : <span className="inline-flex items-center gap-1 sm:gap-1.5 text-[10.5px] sm:text-[11px] font-bold px-2 sm:px-2.5 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-100/80 whitespace-nowrap"><UserCog size={11} className="sm:w-3 sm:h-3" />个人视角</span>}
+              <span className="inline-flex items-center gap-1 sm:gap-1.5 text-[10.5px] sm:text-[11px] font-bold px-2 sm:px-2.5 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-100/80 whitespace-nowrap"><UserCog size={11} className="sm:w-3 sm:h-3" />我的矩阵</span>
             </div>
           </button>
           <div className="flex items-center gap-1.5 sm:gap-3 max-sm:gap-1.5 min-w-0">
@@ -6170,16 +6310,6 @@ export default function App() {
               <span className="hidden sm:inline">历史爆款</span>
               {viralHistory.length > 0 && <span className="text-[10.5px] font-bold tabular-nums px-1.5 py-[2px] rounded-md bg-white text-amber-700 border border-amber-100 min-w-[20px] text-center shadow-sm">{viralHistory.length}</span>}
             </motion.button>
-            {isAdmin && data?.operators?.length > 1 && data?.platforms?.length > 0 && (
-              <ScopeSelector
-                operators={data.operators}
-                platforms={data.platforms}
-                selectedOperatorUid={selectedOperatorUid}
-                effectivePlatformKey={effectivePlatform}
-                onSelectOperator={(uid) => uid ? navigateToOperator(uid) : navigateToHome()}
-                onSelectPlatform={(key) => key ? navigateToPlatform(key) : navigateToHome()}
-              />
-            )}
             <motion.button
               whileHover={{ scale: 1.04 }}
               whileTap={{ scale: 0.95 }}
@@ -6205,6 +6335,8 @@ export default function App() {
               }}
               mockEnabled={mockEnabled}
               onToggleMock={toggleMock}
+              onClearAllData={handleClearAllData}
+              onDeleteAccount={handleDeleteAccount}
             />
           </div>
         </div>
@@ -6272,6 +6404,64 @@ export default function App() {
                 <span className="hidden sm:inline">生成周报</span>
                 <span className="sm:hidden">周报</span>
               </motion.button>
+            </div>
+          </motion.div>
+        )}
+
+        {isAdmin && !effectiveScopeUid && Array.isArray(data?.operatorStats) && data.operatorStats.length > 1 && currentView !== 'platform' && (
+          <motion.div
+            variants={FADE_UP}
+            initial="hidden"
+            whileInView="show"
+            viewport={{ once: true }}
+            className="mb-5 rounded-2xl border border-emerald-100/70 bg-gradient-to-br from-emerald-50/70 via-teal-50/50 to-sky-50/60 shadow-sm overflow-hidden"
+          >
+            <div className="px-4 sm:px-5 py-3.5 sm:py-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3 sm:mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-xl bg-emerald-500/10 flex items-center justify-center"><Trophy size={14} className="text-emerald-700" /></div>
+                  <div>
+                    <h2 className="text-[15px] font-semibold text-ink-900 tracking-tight">运营绩效对比 · 排行榜</h2>
+                    <p className="text-[11.5px] text-ink-500 mt-0.5">横向对比各运营的账号规模、内容产出与爆款率，点击行可切换到「个人绩效看板」</p>
+                  </div>
+                </div>
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-emerald-100/70 text-emerald-700">{data.operatorStats.length} 位运营</span>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {[...data.operatorStats]
+                  .sort((a, b) => ((b.total_followers || 0) + (b.total_members || 0)) - ((a.total_followers || 0) + (a.total_members || 0)))
+                  .map((op, i) => {
+                    const rankColors = ['from-amber-400 to-orange-500', 'from-slate-400 to-slate-500', 'from-amber-700 to-amber-800', 'from-sky-400 to-indigo-400'];
+                    const rc = rankColors[Math.min(i, rankColors.length - 1)];
+                    return (
+                      <motion.button
+                        key={op.operator_uid || `op-${i}`}
+                        variants={STAGGER}
+                        whileHover={{ y: -2, scale: 1.008 }}
+                        whileTap={{ scale: 0.99 }}
+                        onClick={() => setCurrentUid(op.operator_uid)}
+                        className="text-left rounded-2xl border border-black/[0.05] bg-white/80 hover:bg-white p-3 sm:p-3.5 flex items-start gap-3 shadow-sm transition"
+                      >
+                        <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${rc} text-white font-bold text-sm flex items-center justify-center shrink-0 shadow-sm`}>{i + 1}</div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-semibold text-[13.5px] text-ink-900 truncate">{op.operator_name || op.operator_uid}</span>
+                            {op.role === 'admin' && <span className="text-[9px] font-bold px-1.5 py-[1px] rounded bg-gradient-to-br from-amber-500 to-orange-600 text-white">ADMIN</span>}
+                          </div>
+                          <div className="text-[11px] text-ink-500 mb-2 flex flex-wrap gap-x-2 gap-y-0.5">
+                            <span>📊 账号 {(op.accounts_count || 0) + (op.communities_count || 0)}</span>
+                            <span>👥 总覆盖 {formatShort((op.total_followers || 0) + (op.total_members || 0))}</span>
+                            <span>💣 爆款率 {(op.bomb_rate || 0).toFixed ? (op.bomb_rate || 0).toFixed(1) : op.bomb_rate}%</span>
+                          </div>
+                          <div className="h-1.5 rounded-full bg-slate-100 w-full overflow-hidden">
+                            <div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-teal-500"
+                              style={{ width: `${Math.min(100, ((((op.total_followers || 0) + (op.total_members || 0)) / (([...data.operatorStats].reduce((s, x) => Math.max(s, (x.total_followers || 0) + (x.total_members || 0)), 1) || 1))) * 100))}%` }} />
+                          </div>
+                        </div>
+                      </motion.button>
+                    );
+                  })}
+              </div>
             </div>
           </motion.div>
         )}
@@ -6390,35 +6580,7 @@ export default function App() {
                 )
               ))}
 
-              {isAdmin && selectedOpStat && (
-                <OperatorOverview
-                  operatorStat={selectedOpStat}
-                  onClose={navigateToHome}
-                  onOpenRecord={setDetailRecord}
-                  onSelectPlatform={(name) => navigateToPlatform(name)}
-                />
-              )}
-
-              {isAdmin && data?.operatorStats?.length > 0 && !selectedOpStat && (
-                <motion.div variants={FADE_UP} initial="hidden" whileInView="show" viewport={{ once: true, amount: 0.3 }} className="mb-6 bg-white rounded-2xl border border-black/[0.04] shadow-card p-5 sm:p-6">
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <h2 className="text-[15px] font-semibold text-ink-900 tracking-tight">运营绩效对比</h2>
-                      <p className="text-[12px] text-ink-500 mt-0.5">管理员视角 · 点击运营姓名进入个人综合绩效下钻</p>
-                    </div>
-                    <span className="inline-flex items-center gap-1.5 text-[11.5px] px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 font-medium"><BarChart3 size={12} />按人维度</span>
-                  </div>
-                  <div className="h-[260px] -ml-2">
-                    <OperatorPerformanceChart
-                      stats={data.operatorStats}
-                      onSelectOperator={navigateToOperator}
-                      selectedUid={selectedOperatorUid}
-                    />
-                  </div>
-                </motion.div>
-              )}
-
-              {stocktwitsRecords.length > 0 && (
+              {((data?.platforms || []).some(p => p.key === 'stocktwits' || p.name === 'Stocktwits') || stocktwitsRecords.length > 0 || mockEnabled) && (
                 <motion.div variants={STAGGER} initial="hidden" whileInView="show" viewport={{ once: true, amount: 0.25 }} className="mb-6">
                   <div className="flex items-center justify-between mb-3.5">
                     <div className="flex items-center gap-2.5">
@@ -6427,9 +6589,20 @@ export default function App() {
                       <span className="text-[12px] text-ink-400">{stocktwitsRecords.length} 只股票</span>
                     </div>
                   </div>
-                  <motion.div variants={STAGGER} initial="hidden" whileInView="show" viewport={{ once: true }} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {stocktwitsRecords.map((r) => <StocktwitsCard key={`st-${r.account}`} r={r} onOpenDetail={setDetailRecord} onNavigateOperator={navigateToOperator} />)}
-                  </motion.div>
+                  {stocktwitsRecords.length > 0 ? (
+                    <motion.div variants={STAGGER} initial="hidden" whileInView="show" viewport={{ once: true }} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {stocktwitsRecords.map((r) => <StocktwitsCard key={`st-${r.account}`} r={r} onOpenDetail={setDetailRecord} onNavigateOperator={navigateToOperator} />)}
+                    </motion.div>
+                  ) : (
+                    <motion.div variants={FADE_UP} className="rounded-2xl border border-dashed border-[#4263EB]/20 bg-[#4263EB]/[0.03] p-6 flex flex-col sm:flex-row items-center gap-4">
+                      <div className="w-12 h-12 rounded-2xl bg-[#4263EB]/10 flex items-center justify-center shrink-0"><TrendingUp size={22} className="text-[#4263EB]" /></div>
+                      <div className="min-w-0 flex-1 text-center sm:text-left">
+                        <div className="text-[14px] font-semibold text-ink-900">未监测到 Stocktwits 股票账号</div>
+                        <div className="text-[12px] text-ink-500 mt-1">打开采集器插件并访问 Stocktwits 股票页（<span className="font-mono">stocktwits.com/symbol/AAPL</span>），账号将自动入库并显示情绪指标。</div>
+                      </div>
+                      <button onClick={() => setShowDownloads(true)} className="h-9 px-3.5 rounded-xl bg-[#4263EB] hover:bg-[#3551c5] text-white text-[12.5px] font-semibold flex items-center gap-1.5 shrink-0"><Download size={13} />获取采集器</button>
+                    </motion.div>
+                  )}
                 </motion.div>
               )}
 
@@ -6541,6 +6714,7 @@ export default function App() {
         item={activeViralAlert}
         onDismiss={(id) => {
           if (activeViralAlert && activeViralAlert.id === id) {
+            dismissViralAlertForever(activeViralAlert);
             pushViralToHistory(activeViralAlert);
             setActiveViralAlert(null);
           }

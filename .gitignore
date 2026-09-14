@@ -36,6 +36,17 @@ server/.env
 .env
 .env.local
 
+# Ad-hoc 诊断 / 清理脚本（本地一次性临时文件，不进仓库）
+server/_*.py
+
+# 下载产物 / 构建压缩包
+dashboard/public/downloads/*.zip
+dashboard/dist/downloads/*.zip
+
+# Chrome / MV3 扩展本地打包产物
+collector-extension/_metadata/
+chrome-extension/_metadata/
+
 # OS
 .DS_Store
 Thumbs.db

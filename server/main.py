@@ -77,7 +77,7 @@ def _env(name: str, default: Any = None) -> Any:
 ENV_JWT_SECRET: str = _env("JWT_SECRET", DEFAULT_JWT_SECRET)
 ENV_JWT_ACCESS_TTL: int = int(_env("JWT_ACCESS_TTL_SEC", "3600"))
 ENV_JWT_REFRESH_TTL: int = int(_env("JWT_REFRESH_TTL_SEC", "604800"))
-ENV_REQUIRE_AUTH: bool = str(_env("REQUIRE_AUTH", "false")).lower() in {"1", "true", "yes", "on"}
+ENV_REQUIRE_AUTH: bool = True
 ENV_SSO_JWT_SECRET: Optional[str] = _env("SSO_JWT_SECRET") or _env("JWT_SECRET") or None
 ENV_SSO_JWT_ALG: str = _env("SSO_JWT_ALG", "HS256")
 ENV_SSO_JWK_URL: Optional[str] = _env("SSO_JWK_URL") or None
@@ -109,7 +109,7 @@ elif ENV_JWT_SECRET == DEFAULT_JWT_SECRET:
     print("[WARN] JWT_SECRET 使用默认 dev 值，生产必须设置 JWT_SECRET 环境变量")
 
 DB_PATH = Path(__file__).parent / "matrix.db"
-SEED_MOCK_ON_EMPTY = True
+SEED_MOCK_ON_EMPTY = False
 APP_VERSION = "2.0.0"
 
 PLATFORMS: List[Dict[str, str]] = [
@@ -139,15 +139,40 @@ PLATFORMS: List[Dict[str, str]] = [
 
 OPERATORS: List[Dict[str, str]] = [
     dict(operator_uid="admin_001", operator_name="张总（管理）", role="admin"),
-    dict(operator_uid="op_001",    operator_name="李运营",        role="operator"),
-    dict(operator_uid="op_002",    operator_name="王运营",        role="operator"),
-    dict(operator_uid="op_003",    operator_name="赵运营",        role="operator"),
 ]
 
 AVATAR_POOL = [
     "#6366f1,#8b5cf6", "#0ea5e9,#22d3ee", "#f59e0b,#ef4444", "#10b981,#14b8a6",
     "#ec4899,#f43f5e", "#4263EB,#3b82f6", "#FF4500,#f59e0b",
 ]
+
+_GENERIC_ACCOUNT_NAMES = [
+    '微信公众平台', '公众号', '公众平台', '登录', '注册', '首页', '主页', '控制台', '工作台',
+    '小红书', '抖音', '抖音精选', '精选', '微博', 'b站', 'bilibili', '哔哩哔哩',
+    '知乎', '知乎首页', '百度贴吧', '雪球', '富途', '老虎社区', '老虎证券',
+    'youtube', 'linkedin', 'instagram', 'telegram', 'discord', 'reddit', 'stocktwits',
+    'x', 'twitter', 'tiktok', 'home', 'index', 'explore', 'discover', '活动',
+]
+
+
+def is_generic_account_name(name: str) -> bool:
+    if not name:
+        return True
+    n = str(name).strip()
+    if not n:
+        return True
+    if len(n) > 30:
+        return False
+    lowered = n.lower()
+    for g in _GENERIC_ACCOUNT_NAMES:
+        if lowered == g.lower():
+            return True
+    if n.startswith('http://') or n.startswith('https://'):
+        return True
+    import re
+    if re.match(r'^(sign in|log in|login|register|signup|sign up|homepage|home page|main page)$', lowered):
+        return True
+    return False
 
 
 # ============================================================
@@ -306,6 +331,9 @@ CREATE TABLE IF NOT EXISTS users (
     must_change_pw      INTEGER DEFAULT 0,
     last_login_at       TEXT,
     login_count         INTEGER DEFAULT 0,
+    display_name        TEXT,
+    avatar_gradient     TEXT,
+    avatar_data_url     TEXT,
     created_at          TEXT DEFAULT (datetime('now')),
     updated_at          TEXT DEFAULT (datetime('now'))
 );
@@ -412,6 +440,7 @@ def init_db():
         preflight_alters = [
             ("users", [("display_name", "TEXT"), ("avatar_gradient", "TEXT"), ("avatar_data_url", "TEXT")]),
             ("machines", [("site_id", "TEXT"), ("collector_id", "TEXT"), ("today_records_count", "INTEGER DEFAULT 0")]),
+            ("accounts", [("avatar_url", "TEXT"), ("avatar_data_url", "TEXT")]),
         ]
         exists_tables = set(r["name"] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall())
         for tname, add_cols in preflight_alters:
@@ -1022,14 +1051,48 @@ def verify_operator_identity(
             token_site_id = row["site_id"]
         if token_site_id and token_site_id != site_id:
             raise HTTPException(403, detail="forbidden_token_wrong_site")
+        mismatch_reported = False
         if operator_uid and token_op_uid != operator_uid:
-            raise HTTPException(403, detail="forbidden_operator_token_mismatch")
-        if token_id:
-            conn.execute("UPDATE collector_tokens SET last_used_at=? WHERE id=?", (now, token_id))
-        operator_uid = operator_uid or token_op_uid
-
+            mismatch_reported = True
+            print(f"[verify][WARN] operator_token_mismatch_auto_correct: operator_uid in body={operator_uid!r} overridden by token-bound operator_uid={token_op_uid!r} (machine_id={machine_id!r}, token_id={token_id!r})")
+        operator_uid = token_op_uid
     if not operator_uid and existing_machine_op:
         operator_uid = existing_machine_op
+
+    rebind_ok = False
+    if operator_token and token_id and operator_uid:
+        rebind_ok = (operator_uid == token_op_uid)
+
+    if not rebind_ok and operator_token and token_id and operator_uid and machine_row:
+        existing_col_token = None
+        if existing_machine_collector:
+            trow = conn.execute("SELECT operator_uid, status, revoked_at, expires_at FROM collector_tokens WHERE id=?", (existing_machine_collector,)).fetchone()
+            if trow:
+                if trow["status"] != "active" or trow["revoked_at"] or (trow["expires_at"] and trow["expires_at"] < now):
+                    existing_col_token = None
+                else:
+                    existing_col_token = trow["operator_uid"]
+        if existing_col_token is None:
+            print(f"[verify][INFO] collector_rebind_orphan_machine: machine_id={machine_id!r} was bound to operator_uid={existing_machine_op!r} / collector_id={existing_machine_collector!r}, rebinding to token owner {token_op_uid!r} / {token_id!r}")
+            rebind_ok = True
+
+    if rebind_ok and machine_row and (
+        (existing_machine_op and existing_machine_op != operator_uid) or
+        (existing_machine_collector and existing_machine_collector != token_id) or
+        (existing_machine_site and token_site_id and existing_machine_site != token_site_id)
+    ):
+        conn.execute(
+            "UPDATE machines SET operator_uid=?, collector_id=?, site_id=? WHERE machine_id=?",
+            (
+                operator_uid if operator_uid else existing_machine_op,
+                token_id if token_id else existing_machine_collector,
+                (token_site_id or site_id) if token_site_id else existing_machine_site,
+                machine_id,
+            ),
+        )
+        existing_machine_op = operator_uid if operator_uid else existing_machine_op
+        existing_machine_collector = token_id if token_id else existing_machine_collector
+        existing_machine_site = (token_site_id or site_id) if token_site_id else existing_machine_site
 
     if existing_machine_op and operator_uid and existing_machine_op != operator_uid:
         raise HTTPException(403, detail="forbidden_machine_bound_to_other_operator")
@@ -1058,14 +1121,18 @@ def upsert_account(conn: sqlite3.Connection, r: CollectItem) -> str:
     symbol = None
     subreddit = None
     channel = None
+    avatar_url = None
+    avatar_data_url = None
     extra = r.extra or {}
     if isinstance(extra, dict):
         symbol = extra.get("symbol") or r.symbol or None
         subreddit = extra.get("subreddit") or r.subreddit or None
         channel = extra.get("channel") or r.channel or None
+        avatar_url = extra.get("avatar_url") or None
+        avatar_data_url = extra.get("avatar_data_url") or None
     conn.execute(
-        """INSERT INTO accounts(id,account_name,entity_type,platform,platform_key,platform_category,target_url,symbol,subreddit,channel,assigned_operator_uid,assigned_operator_name,avatar_color,active,updated_at)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1,datetime('now'))
+        """INSERT INTO accounts(id,account_name,entity_type,platform,platform_key,platform_category,target_url,symbol,subreddit,channel,assigned_operator_uid,assigned_operator_name,avatar_color,avatar_url,avatar_data_url,active,updated_at)
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,datetime('now'))
            ON CONFLICT(id) DO UPDATE SET
              platform_category=excluded.platform_category,
              target_url=COALESCE(excluded.target_url, accounts.target_url),
@@ -1074,12 +1141,15 @@ def upsert_account(conn: sqlite3.Connection, r: CollectItem) -> str:
              channel=COALESCE(excluded.channel, accounts.channel),
              assigned_operator_uid=COALESCE(NULLIF(excluded.assigned_operator_uid,''), accounts.assigned_operator_uid),
              assigned_operator_name=COALESCE(NULLIF(excluded.assigned_operator_name,''), accounts.assigned_operator_name),
+             avatar_url=COALESCE(excluded.avatar_url, accounts.avatar_url),
+             avatar_data_url=COALESCE(excluded.avatar_data_url, accounts.avatar_data_url),
              active=1, updated_at=datetime('now')
         """,
         (aid, name, et, meta["name"], meta["key"], meta["category"],
          r.target_url or None, symbol, subreddit, channel,
          r.operator_uid or None, r.operator_name or None,
-         AVATAR_POOL[hash(name.encode()) % len(AVATAR_POOL)]),
+         AVATAR_POOL[hash(name.encode()) % len(AVATAR_POOL)],
+         avatar_url, avatar_data_url),
     )
     return aid
 
@@ -1117,14 +1187,50 @@ def snapshot_daily(conn: sqlite3.Connection, account_id: str, r: CollectItem):
 
 def insert_record(conn: sqlite3.Connection, r: CollectItem):
     account_id = upsert_account(conn, r)
+    if not account_id:
+        account_id = ""
     ts_ms = r.timestamp_ms or now_ms()
     rec_id = r.id or f"rec_{account_id or hashlib.md5(str(ts_ms).encode()).hexdigest()[:8]}_{ts_ms}"
+    day_key = _dt.datetime.now().isoformat(timespec="seconds")[:10]
+    rec_id_pk = f"{account_id or 'na'}_{day_key}"
     conn.execute(
         """INSERT INTO records(id,account_id,entity_type,account,platform,platform_key,target_url,followers,following,likes,views,comments,collect,engagement_rate,
                               members,online,message_volume_24h,posts_24h,sentiment_bull,sentiment_bear,symbol_price,symbol_change_pct,
                               extra,latest_post,posts,source,operator_uid,operator_name,machine_id,machine_name,client_version,error,updated_at,timestamp_ms)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (rec_id, account_id or None, r.entity_type or "ACCOUNT", r.account, r.platform or platform_meta(r.platform_key or "")["name"],
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(id) DO UPDATE SET
+             account=excluded.account,
+             platform=excluded.platform,
+             platform_key=excluded.platform_key,
+             target_url=excluded.target_url,
+             followers=excluded.followers,
+             following=excluded.following,
+             likes=excluded.likes,
+             views=excluded.views,
+             comments=excluded.comments,
+             collect=excluded.collect,
+             engagement_rate=excluded.engagement_rate,
+             members=excluded.members,
+             online=excluded.online,
+             message_volume_24h=excluded.message_volume_24h,
+             posts_24h=excluded.posts_24h,
+             sentiment_bull=excluded.sentiment_bull,
+             sentiment_bear=excluded.sentiment_bear,
+             symbol_price=excluded.symbol_price,
+             symbol_change_pct=excluded.symbol_change_pct,
+             extra=excluded.extra,
+             latest_post=excluded.latest_post,
+             posts=excluded.posts,
+             source=excluded.source,
+             operator_uid=COALESCE(excluded.operator_uid, records.operator_uid),
+             operator_name=COALESCE(excluded.operator_name, records.operator_name),
+             machine_id=COALESCE(excluded.machine_id, records.machine_id),
+             machine_name=COALESCE(excluded.machine_name, records.machine_name),
+             error=excluded.error,
+             updated_at=excluded.updated_at,
+             timestamp_ms=excluded.timestamp_ms
+        """,
+        (rec_id_pk, account_id or None, r.entity_type or "ACCOUNT", r.account, r.platform or platform_meta(r.platform_key or "")["name"],
          (r.platform_key or ""), r.target_url or None,
          int(r.followers or 0), int(r.following or 0), int(r.likes or 0), int(r.views or 0), int(r.comments or 0), int(r.collect or 0), float(r.engagement_rate or 0),
          int(r.members or 0), int(r.online or 0), int(r.message_volume_24h or 0), int(r.posts_24h or 0), float(r.sentiment_bull or 0), float(r.sentiment_bear or 0),
@@ -1138,7 +1244,7 @@ def insert_record(conn: sqlite3.Connection, r: CollectItem):
     )
     if account_id:
         snapshot_daily(conn, account_id, r)
-    return rec_id
+    return rec_id_pk
 
 
 # ============================================================
@@ -1374,6 +1480,9 @@ def api_heartbeat(hb: HeartbeatRequest, request: Request):
 async def api_collect_data(req: CollectRequest, request: Request):
     viral_events: List[Dict[str, Any]] = []
     accepted = 0
+    rejected_foreign = 0
+    rejected_invalid = 0
+    rejected_detail: List[Dict[str, str]] = []
     with get_conn() as c:
         site = get_current_site(c)
         ident = verify_operator_identity(c, req.machine_id, req.operator_uid, req.operator_token)
@@ -1387,6 +1496,51 @@ async def api_collect_data(req: CollectRequest, request: Request):
             item.client_version = item.client_version or req.version
             item.source = item.source or req.source or "chrome_extension"
             try:
+                name = (item.account or "").strip()
+                pk = (item.platform_key or "").strip() or (item.platform or "").lower()
+                et = (item.entity_type or "ACCOUNT").upper()
+                aid = f"acc_{hashlib.md5(f'{pk}|{name}|{et}'.encode()).hexdigest()[:10]}" if pk and name else ""
+                extra = item.extra
+                try:
+                    extra_dict = extra.model_dump() if hasattr(extra, "model_dump") else (dict(extra) if extra else {})
+                except Exception:
+                    extra_dict = {}
+                # -------------- 双重校验（后端最后一道防线：非当前运营的账号一律拒绝 --------------
+                existing = None
+                if aid:
+                    existing = c.execute(
+                        "SELECT assigned_operator_uid FROM accounts WHERE id=?",
+                        (aid,),
+                    ).fetchone()
+                if existing and existing["assigned_operator_uid"] and operator_uid:
+                    if existing["assigned_operator_uid"] != operator_uid:
+                        rejected_foreign += 1
+                        rejected_detail.append({
+                            "account": name,
+                            "reason": "foreign_operator_account",
+                            "detail": f"账号已归属运营者 {existing['assigned_operator_uid']}，当前 {operator_uid} 无权采集",
+                        })
+                        continue
+                followers_i = int(item.followers or 0)
+                members_i = int(item.members or 0)
+                views_i = int(item.views or 0)
+                likes_i = int(item.likes or 0)
+                posts_i = int(item.posts_24h or 0) or (len(item.posts) if item.posts else 0)
+                audience = followers_i + members_i
+                signal = views_i + likes_i + posts_i
+                if not existing:
+                    if audience == 0 and signal == 0:
+                        rejected_invalid += 1
+                        rejected_detail.append({"account": name, "reason": "no_signal", "detail": "粉丝/浏览/点赞/帖子均为 0，拒绝入库"})
+                        continue
+                    if followers_i < 1 and members_i < 1 and name and is_generic_account_name(name):
+                        rejected_invalid += 1
+                        rejected_detail.append({"account": name, "reason": "generic_name_zero_audience", "detail": f"账号名是通用平台词且粉丝=0"})
+                        continue
+                if not existing and name and is_generic_account_name(name):
+                    rejected_invalid += 1
+                    rejected_detail.append({"account": name, "reason": "generic_name", "detail": "账号名是通用平台词/首页/活动等，拒绝首入库"})
+                    continue
                 insert_record(c, item)
                 accepted += 1
                 if is_bomb_viral(item):
@@ -1418,6 +1572,49 @@ async def api_collect_data(req: CollectRequest, request: Request):
     if viral_events and req.webhook_url:
         for ev in viral_events:
             webhook_results.append(await fire_webhook(req.webhook_url, ev))
+    def _fmt(n):
+        if n is None:
+            return None
+        try:
+            x = int(n)
+        except Exception:
+            return n
+        if x >= 100_000_000:
+            return f"{x/100_000_000:.1f}亿".replace(".0亿", "亿")
+        if x >= 10_000:
+            return f"{x/10_000:.1f}万".replace(".0万", "万")
+        return str(x)
+    items_summary = []
+    for it in req.items:
+        rec: Dict[str, Any] = {
+            "platform": it.platform,
+            "platform_key": it.platform_key,
+            "account": it.account,
+            "entity_type": it.entity_type,
+        }
+        if it.entity_type == "COMMUNITY":
+            if it.members:
+                rec["members"] = _fmt(it.members)
+            if it.message_volume_24h:
+                rec["msg_24h"] = _fmt(it.message_volume_24h)
+        else:
+            if it.followers:
+                rec["followers"] = _fmt(it.followers)
+            if it.following:
+                rec["following"] = _fmt(it.following)
+            if it.likes:
+                rec["likes"] = _fmt(it.likes)
+            if it.views:
+                rec["views"] = _fmt(it.views)
+        if it.extra:
+            try:
+                extra = it.extra.model_dump() if hasattr(it.extra, "model_dump") else dict(it.extra)
+            except Exception:
+                extra = {}
+            for k in ("native_account_id", "symbol", "subreddit", "channel"):
+                if extra.get(k):
+                    rec[k] = extra[k]
+        items_summary.append(rec)
     return {
         "ok": True,
         "authorized": ident.get("authorized", False),
@@ -1429,12 +1626,17 @@ async def api_collect_data(req: CollectRequest, request: Request):
         },
         "received": len(req.items),
         "accepted": accepted,
+        "rejected_foreign": rejected_foreign,
+        "rejected_invalid": rejected_invalid,
+        "rejected_total": rejected_foreign + rejected_invalid,
+        "rejected_sample": rejected_detail[:5],
         "viral_events": len(viral_events),
         "viral_events_sample": viral_events[:3],
         "webhook_fired": len(webhook_results),
         "webhook_results": webhook_results[:3],
         "server_version": APP_VERSION,
         "collected_at_ms": now_ms(),
+        "items_summary": items_summary,
     }
 
 
@@ -2300,6 +2502,58 @@ def api_admin_patch_system_flags(body: List[PatchSystemFlagRequest], request: Re
     return {"ok": True}
 
 
+class AdminClearDataRequest(BaseModel):
+    scope: str = "all"
+    confirm: bool = False
+
+
+@app.post("/api/admin/clear-data", tags=["admin"])
+def api_admin_clear_data(body: AdminClearDataRequest, request: Request, user: Dict[str, Any] = Depends(require_role("admin"))):
+    ip, ua = _client_meta(request)
+    if not body.confirm:
+        raise HTTPException(400, "confirm_required")
+    scope = (body.scope or "all").lower()
+    with get_conn() as c:
+        if scope in {"all", "records", "monitoring"}:
+            c.execute("DELETE FROM records")
+            c.execute("DELETE FROM daily_snapshots")
+            c.execute("DELETE FROM accounts WHERE id NOT IN (SELECT account_id FROM accounts WHERE account_id='anchor_noop')")
+        elif scope == "records":
+            c.execute("DELETE FROM records")
+            c.execute("DELETE FROM daily_snapshots")
+        else:
+            raise HTTPException(400, f"unknown_scope: {scope}")
+        write_audit(c, user["id"], "admin_clear_data", True, f"scope={scope}", ip, ua)
+    return {"ok": True, "scope": scope}
+
+
+@app.delete("/api/admin/accounts/{account_id}", tags=["admin"])
+def api_admin_delete_account(account_id: str, request: Request, user: Dict[str, Any] = Depends(require_role("admin"))):
+    ip, ua = _client_meta(request)
+    with get_conn() as c:
+        acc = c.execute("SELECT id, account_name, platform FROM accounts WHERE id=?", (account_id,)).fetchone()
+        if not acc:
+            raise HTTPException(404, "account_not_found")
+        c.execute("DELETE FROM records WHERE account_id=?", (account_id,))
+        c.execute("DELETE FROM daily_snapshots WHERE account_id=?", (account_id,))
+        c.execute("DELETE FROM accounts WHERE id=?", (account_id,))
+        write_audit(c, user["id"], "admin_delete_account", True, f"account_id={account_id} name={acc['account_name']}", ip, ua)
+    return {"ok": True, "account_id": account_id, "account_name": acc["account_name"]}
+
+
+@app.delete("/api/admin/accounts/{account_id}/records", tags=["admin"])
+def api_admin_clear_account_records(account_id: str, request: Request, user: Dict[str, Any] = Depends(require_role("admin"))):
+    ip, ua = _client_meta(request)
+    with get_conn() as c:
+        acc = c.execute("SELECT id FROM accounts WHERE id=?", (account_id,)).fetchone()
+        if not acc:
+            raise HTTPException(404, "account_not_found")
+        c.execute("DELETE FROM records WHERE account_id=?", (account_id,))
+        c.execute("DELETE FROM daily_snapshots WHERE account_id=?", (account_id,))
+        write_audit(c, user["id"], "admin_clear_account_records", True, f"account_id={account_id}", ip, ua)
+    return {"ok": True, "account_id": account_id}
+
+
 # ============================================================
 # Dashboard aggregation（对齐 api.js fetchSummary 期望字段）
 # ============================================================
@@ -2314,67 +2568,47 @@ def build_dashboard(days: int = 30, operator_uid: Optional[str] = None, role: Op
             name=(by_uid.get(operator_uid or "admin_001") or by_uid.get("admin_001") or (all_ops[0] if all_ops else {"operator_name": "admin"})).get("operator_name"),
             role=(by_uid.get(operator_uid or "admin_001") or by_uid.get("admin_001") or (all_ops[0] if all_ops else {"role": "admin"})).get("role", "operator"),
         )
-        if not mock_en:
-            return dict(
-                current_user=current_user,
-                operators=all_ops,
-                operator_stats=[
-                    dict(
-                        operator_uid=o["operator_uid"], operator_name=o["operator_name"], role=o["role"], avatar_color=o.get("avatar_color"),
-                        accounts_count=0, communities_count=0,
-                        total_followers=0, total_members=0, total_views_7d=0,
-                        abnormal_count=0, bomb_rate=0.0, total_posts_30d=0,
-                        last_report_at=None, machines=[], records_count=0,
-                    ) for o in all_ops
-                ],
-                total_followers=0,
-                total_members=0,
-                total_views_7d=0,
-                platform_count=0,
-                account_count=0,
-                community_count=0,
-                abnormal_count=0,
-                latest_records=[],
-                platform_traffic=[],
-                trend=[
-                    {"date": f"{(_dt.date.today() - _dt.timedelta(days=days-1-i)).month:02d}/{(_dt.date.today() - _dt.timedelta(days=days-1-i)).day:02d}"}
-                    for i in range(days)
-                ],
-                platforms=[platform_meta(p["key"]) for p in PLATFORMS],
-                categories=[
-                    dict(key="all", name="全部"),
-                    dict(key="金融", name="金融社区"),
-                    dict(key="社媒", name="国内社媒"),
-                    dict(key="海外", name="海外平台"),
-                    dict(key="社区", name="公开社区"),
-                ],
-                entity_types=[
-                    dict(key="all", name="全部类型"),
-                    dict(key="ACCOUNT", name="仅账号"),
-                    dict(key="COMMUNITY", name="仅社区"),
-                ],
-                collector_machines=[],
-                viral_alerts=[],
-                ai_diagnosis=[],
-                mock_enabled=False,
-            )
         op_from_uid = by_uid.get(operator_uid or "")
         if role == "admin" or (op_from_uid and op_from_uid["role"] == "admin"):
             operator_uid_filter = None
         else:
             operator_uid_filter = operator_uid or None
 
+        def _non_empty(v, allow_data=False):
+            if v is None: return None
+            s = str(v).strip()
+            if len(s) == 0 or s.lower() in ('about:blank', '#'): return None
+            if s.lower().startswith('data:') and not allow_data: return None
+            return s
+
+        def _non_empty_data(v):
+            if v is None: return None
+            s = str(v).strip()
+            if not s.lower().startswith('data:image/'): return None
+            return s if len(s) > 16 else None
+
+        def _coalesce(*vs):
+            for v in vs:
+                r = _non_empty(v, allow_data=True)
+                if r: return r
+            return None
+
         latest_q = """
             SELECT r.*,
-                   a.avatar_color, a.platform_category AS a_platform_category,
-                   a.symbol AS a_symbol, a.subreddit AS a_subreddit,
+                   a.avatar_url          AS a_avatar_url,
+                   a.avatar_data_url     AS a_avatar_data_url,
+                   a.avatar_color        AS a_avatar_color,
+                   a.platform_category   AS a_platform_category,
+                   a.symbol              AS a_symbol, a.subreddit AS a_subreddit,
                    a.assigned_operator_uid  AS acc_operator_uid,
                    a.assigned_operator_name AS acc_operator_name
             FROM records r
             LEFT JOIN accounts a ON a.id = r.account_id
-            WHERE r.updated_at = (
-                SELECT MAX(r2.updated_at) FROM records r2
-                WHERE r2.platform_key=r.platform_key AND r2.account=r.account AND r2.entity_type=r.entity_type
+            WHERE r.id = (
+                SELECT r2.id FROM records r2
+                WHERE r2.account_id = r.account_id
+                ORDER BY r2.updated_at DESC, r2.timestamp_ms DESC
+                LIMIT 1
             )
             ORDER BY r.followers DESC, r.members DESC, r.views DESC
             LIMIT 500
@@ -2395,6 +2629,9 @@ def build_dashboard(days: int = 30, operator_uid: Optional[str] = None, role: Op
             except Exception:
                 posts, latest_post = [], {}
             plat_cat = r["a_platform_category"] or meta["category"]
+            _durl = _non_empty_data(r.get("a_avatar_data_url"))
+            _url  = _non_empty(r.get("a_avatar_url"))
+            _col  = _non_empty(r.get("a_avatar_color"))
             record = dict(
                 id=r["id"],
                 account=r["account"],
@@ -2409,10 +2646,12 @@ def build_dashboard(days: int = 30, operator_uid: Optional[str] = None, role: Op
                 machine_id=r["machine_id"],
                 machine_name=r["machine_name"],
                 client_version=r["client_version"],
-                updated_at=r["updated_at"],
+                updated_at=r.get("updated_at"),
                 target_url=r["target_url"],
                 url=r["target_url"] or "",
-                avatar_gradient=r["avatar_color"] or "#6366f1,#8b5cf6",
+                avatar_url=_durl or _url,
+                avatar_data_url=_durl,
+                avatar_gradient=_col or "#6366f1,#8b5cf6",
                 followers=int(r.get("followers") or 0),
                 following=int(r.get("following") or 0),
                 likes=int(r.get("likes") or 0),
@@ -2639,9 +2878,10 @@ def api_whoami(
     if user:
         with get_conn() as c:
             op = c.execute("SELECT * FROM operators WHERE operator_uid=?", (user["operator_uid"],)).fetchone() if user.get("operator_uid") else None
+            profile = c.execute("SELECT display_name,avatar_gradient,avatar_data_url,username FROM users WHERE id=?", (user["id"],)).fetchone()
         return dict(
-            uid=user["id"],
-            name=user["username"],
+            uid=user.get("operator_uid") or user["id"],
+            name=(profile and profile["display_name"]) or (op and op["operator_name"]) or user["username"],
             role=user["role"],
             operator_uid=user.get("operator_uid"),
             operator_name=op["operator_name"] if op else None,
@@ -2650,6 +2890,10 @@ def api_whoami(
             email=user.get("email"),
             sso_provider=user.get("sso_provider"),
             must_change_pw=bool(user.get("must_change_pw")),
+            username=profile and profile["username"],
+            display_name=profile and profile["display_name"],
+            avatar_gradient=profile["avatar_gradient"] if profile else None,
+            avatar_data_url=profile["avatar_data_url"] if profile else None,
         )
     with get_conn() as c:
         if machine_id:

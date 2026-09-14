@@ -53,36 +53,9 @@ export const PLATFORM_LOGOS = {
 
 const OPERATORS = [
   { operator_uid: 'admin_001', operator_name: '张总（管理）', role: 'admin' },
-  { operator_uid: 'op_001', operator_name: '李运营', role: 'operator' },
-  { operator_uid: 'op_002', operator_name: '王运营', role: 'operator' },
-  { operator_uid: 'op_003', operator_name: '赵运营', role: 'operator' },
 ];
 
-const ACCOUNTS = [
-  { name: '价值投资笔记', platform: 'futu', entity_type: 'ACCOUNT', base: { f: 58000, v: 2_450_000, l: 120000 }, assigned_operator_uid: 'op_001', assigned_operator_name: '李运营' },
-  { name: '成长股猎手', platform: 'laohu', entity_type: 'ACCOUNT', base: { f: 32000, v: 1_100_000, l: 55000 }, assigned_operator_uid: 'op_001', assigned_operator_name: '李运营' },
-  { name: '财经观察', platform: 'xueqiu', entity_type: 'ACCOUNT', base: { f: 128000, v: 5_200_000, l: 380000 }, assigned_operator_uid: 'op_001', assigned_operator_name: '李运营' },
-  { name: '港股研究员', platform: 'wechat', entity_type: 'ACCOUNT', base: { f: 8500, v: 420_000, l: 18000 }, assigned_operator_uid: 'op_002', assigned_operator_name: '王运营' },
-  { name: '生活记录', platform: 'xiaohongshu', entity_type: 'ACCOUNT', base: { f: 42000, v: 890_000, l: 72000 }, assigned_operator_uid: 'op_002', assigned_operator_name: '王运营' },
-  { name: '短视频运营', platform: 'douyin', entity_type: 'ACCOUNT', base: { f: 210000, v: 12_500_000, l: 980000 }, assigned_operator_uid: 'op_002', assigned_operator_name: '王运营' },
-  { name: 'Global Investor', platform: 'x', entity_type: 'ACCOUNT', base: { f: 38000, v: 2_100_000, l: 95000 }, assigned_operator_uid: 'op_003', assigned_operator_name: '赵运营' },
-  { name: 'Tech Insights', platform: 'youtube', entity_type: 'ACCOUNT', base: { f: 156000, v: 18_300_000, l: 620000 }, assigned_operator_uid: 'op_003', assigned_operator_name: '赵运营' },
-  { name: '科技数码观察', platform: 'tiktok', entity_type: 'ACCOUNT', base: { f: 298000, v: 9_800_000, l: 720000 }, assigned_operator_uid: 'op_003', assigned_operator_name: '赵运营' },
-  { name: '消费品牌研究', platform: 'wechat_video', entity_type: 'ACCOUNT', base: { f: 185000, v: 7_600_000, l: 580_000 }, assigned_operator_uid: 'op_001', assigned_operator_name: '李运营' },
-  { name: '职场成长日记', platform: 'linkedin', entity_type: 'ACCOUNT', base: { f: 72000, v: 3_200_000, l: 210000 }, assigned_operator_uid: 'op_002', assigned_operator_name: '王运营' },
-  { name: '期权交易员', platform: 'futu', entity_type: 'ACCOUNT', base: { f: 14000, v: 680_000, l: 28000 }, assigned_operator_uid: 'op_003', assigned_operator_name: '赵运营' },
-  { name: 'Crypto Daily', platform: 'x', entity_type: 'ACCOUNT', base: { f: 72000, v: 4_100_000, l: 190_000 }, assigned_operator_uid: 'op_003', assigned_operator_name: '赵运营' },
-  { name: '价值投资观察', platform: 'xueqiu', entity_type: 'ACCOUNT', base: { f: 21000, v: 850_000, l: 42_000 }, assigned_operator_uid: 'op_001', assigned_operator_name: '李运营' },
-  { name: '穿搭分享', platform: 'xiaohongshu', entity_type: 'ACCOUNT', base: { f: 118000, v: 2_900_000, l: 210_000 }, assigned_operator_uid: 'op_002', assigned_operator_name: '王运营' },
-  { name: 'AI 前沿观察', platform: 'instagram', entity_type: 'ACCOUNT', base: { f: 95000, v: 4_100_000, l: 280_000 }, assigned_operator_uid: 'op_002', assigned_operator_name: '王运营' },
-  { name: '深度研究室', platform: 'seekingalpha', entity_type: 'ACCOUNT', base: { f: 48000, v: 2_100_000, l: 135_000 }, assigned_operator_uid: 'op_001', assigned_operator_name: '李运营' },
-  { name: '$NVDA', platform: 'stocktwits', entity_type: 'COMMUNITY', symbol: 'NVDA', base: { watchers: 1_820_000, msg_24h: 12840, bull: 68.5, bear: 31.5, price: 118.42, change_pct: 2.31 }, assigned_operator_uid: 'op_001', assigned_operator_name: '李运营' },
-  { name: '$TSLA', platform: 'stocktwits', entity_type: 'COMMUNITY', symbol: 'TSLA', base: { watchers: 2_540_000, msg_24h: 28960, bull: 52.8, bear: 47.2, price: 248.60, change_pct: -1.15 }, assigned_operator_uid: 'op_001', assigned_operator_name: '李运营' },
-  { name: '$AAPL', platform: 'stocktwits', entity_type: 'COMMUNITY', symbol: 'AAPL', base: { watchers: 3_120_000, msg_24h: 15220, bull: 61.2, bear: 38.8, price: 224.80, change_pct: 0.58 }, assigned_operator_uid: 'op_002', assigned_operator_name: '王运营' },
-  { name: 'r/wallstreetbets', platform: 'reddit', entity_type: 'COMMUNITY', subreddit: 'wallstreetbets', base: { members: 15_800_000, online: 42_800, posts_24h: 3210 }, assigned_operator_uid: 'op_003', assigned_operator_name: '赵运营' },
-  { name: 'r/stocks', platform: 'reddit', entity_type: 'COMMUNITY', subreddit: 'stocks', base: { members: 6_200_000, online: 18_400, posts_24h: 890 }, assigned_operator_uid: 'op_002', assigned_operator_name: '王运营' },
-  { name: 'r/CryptoCurrency', platform: 'reddit', entity_type: 'COMMUNITY', subreddit: 'CryptoCurrency', base: { members: 7_800_000, online: 25_600, posts_24h: 1560 }, assigned_operator_uid: 'op_003', assigned_operator_name: '赵运营' },
-];
+const ACCOUNTS = [];
 
 const POST_TITLE_POOL = {
   default: [
@@ -210,13 +183,7 @@ function seedHash(str) {
   return (h >>> 0) + 1;
 }
 
-const MACHINES = [
-  { machine_id: 'MAC-OP1-001', machine_name: '李运营-MacBook-Pro' },
-  { machine_id: 'WIN-OP1-002', machine_name: '李运营-台式机' },
-  { machine_id: 'MAC-OP2-001', machine_name: '王运营-MacBook-Air' },
-  { machine_id: 'WIN-OP3-001', machine_name: '赵运营-游戏本' },
-  { machine_id: 'MAC-OP3-002', machine_name: '赵运营-Mac-Studio' },
-];
+const MACHINES = [];
 
 export function generatePostsForAccount(rand, platformKey, accountBaseViews, accountBaseLikes, daysAgo = 0) {
   const pool = POST_TITLE_POOL[platformKey] || POST_TITLE_POOL.default;
@@ -480,11 +447,7 @@ export function generateMockData() {
       };
     });
 
-  const OP_NAME_BY_MACHINE_PREFIX = {
-    '李运营': 'op_001',
-    '王运营': 'op_002',
-    '赵运营': 'op_003',
-  };
+  const OP_NAME_BY_MACHINE_PREFIX = {};
   const collectorMachines = MACHINES.map((m, i) => {
     const opName = (Object.keys(OP_NAME_BY_MACHINE_PREFIX).find(k => m.machine_name.indexOf(k) === 0)) || '';
     const opUid = OP_NAME_BY_MACHINE_PREFIX[opName];

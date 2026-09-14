@@ -45,7 +45,7 @@ function setStoredUid(uid) {
 function getAuthHeaders() {
   const out = {};
   try {
-    const token = sessionStorage.getItem('matrix_jwt_token') || localStorage.getItem('matrix_jwt_token') || _jwtToken;
+    const token = sessionStorage.getItem(JWT_STORAGE_KEY) || localStorage.getItem(JWT_STORAGE_KEY) || _jwtToken;
     if (token) out['Authorization'] = `Bearer ${token}`;
   } catch { /* noop */ }
   return out;
@@ -69,11 +69,11 @@ export function setJwtToken(token, refresh) {
   _jwtToken = token || null;
   try {
     if (token) {
-      sessionStorage.setItem('matrix_jwt_token', token);
-      localStorage.setItem('matrix_jwt_token', token);
+      sessionStorage.setItem(JWT_STORAGE_KEY, token);
+      localStorage.setItem(JWT_STORAGE_KEY, token);
     } else {
-      sessionStorage.removeItem('matrix_jwt_token');
-      localStorage.removeItem('matrix_jwt_token');
+      sessionStorage.removeItem(JWT_STORAGE_KEY);
+      localStorage.removeItem(JWT_STORAGE_KEY);
     }
   } catch { /* noop */ }
   try {
@@ -88,8 +88,8 @@ export function clearSession() {
   try {
     sessionStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(SESSION_KEY);
-    sessionStorage.removeItem('matrix_jwt_token');
-    localStorage.removeItem('matrix_jwt_token');
+    sessionStorage.removeItem(JWT_STORAGE_KEY);
+    localStorage.removeItem(JWT_STORAGE_KEY);
     localStorage.removeItem(REFRESH_KEY);
     sessionStorage.clear();
   } catch { /* noop */ }
@@ -98,25 +98,25 @@ export function clearSession() {
 
 export async function fetchWhoami() {
   const storedUid = getStoredUid();
-  const data = await safeFetch(`${API_BASE}/whoami`);
-  if (data && data.uid) {
-    setStoredUid(data.uid);
-    return {
-      uid: data.uid,
-      name: data.name,
-      role: data.role,
-      machine_id: data.machine_id,
-      from_token: !!data.from_token,
-    };
-  }
-  const fallback = OPERATORS.find(o => o.operator_uid === storedUid) || OPERATORS[0];
-  return {
-    uid: fallback.operator_uid,
-    name: fallback.operator_name,
-    role: fallback.role,
-    machine_id: null,
-    from_token: false,
-  };
+  try {
+    const data = await safeFetch(`${API_BASE}/whoami`);
+    if (data && data.uid) {
+      setStoredUid(data.uid);
+      return {
+        uid: data.uid,
+        name: data.name,
+        role: data.role,
+        machine_id: data.machine_id,
+        from_token: !!data.from_token,
+        username: data.username,
+        display_name: data.display_name,
+        email: data.email,
+        avatar_gradient: data.avatar_gradient,
+        avatar_data_url: data.avatar_data_url,
+      };
+    }
+  } catch {}
+  return null;
 }
 
 function buildEmptyShell(uid, operators) {
@@ -168,6 +168,8 @@ export async function fetchSummary(days = 30, operatorUid, role) {
   const serverMockFlag = data ? data.mock_enabled : null;
   const mockOn = isMockGloballyEnabled(serverMockFlag);
   const fallbackMock = generateMockData();
+  const emptyArr = [];
+
   if (!data) {
     if (!mockOn) {
       const shell = buildEmptyShell(uid, OPERATORS);
@@ -179,50 +181,25 @@ export async function fetchSummary(days = 30, operatorUid, role) {
     out.mock_enabled = true;
     return out;
   }
-  if (!mockOn) {
-    const shell = buildEmptyShell(uid, data.operators || OPERATORS);
-    if (data.current_user) {
-      shell.currentUser = {
-        operator_uid: data.current_user.uid,
-        operator_name: data.current_user.name || data.current_user.uid,
-        role: data.current_user.role || 'operator',
-      };
-    }
-    shell.mock_enabled = false;
-    shell.operators = shell.operators || data.operators || OPERATORS;
-    shell.platforms = dedupPlatforms(data.platforms || shell.platforms || []);
-    shell.categories = [
-      { key: 'all', name: '全部' },
-      { key: '金融', name: '金融社区' },
-      { key: '社媒', name: '国内社媒' },
-      { key: '海外', name: '海外平台' },
-      { key: '社区', name: '公开社区' },
-    ];
-    shell.entityTypes = [
-      { key: 'all', name: '全部类型' },
-      { key: 'ACCOUNT', name: '仅账号' },
-      { key: 'COMMUNITY', name: '仅社区' },
-    ];
-    return shell;
-  }
-  const operators = OPERATORS;
+
+  const operators = data.operators && data.operators.length ? data.operators : OPERATORS;
   const currentUser = (data.current_user && data.current_user.uid)
     ? {
         operator_uid: data.current_user.uid,
         operator_name: data.current_user.name || data.current_user.uid,
         role: data.current_user.role || 'operator',
       }
-    : (operators.find(o => o.operator_uid === uid) || operators[0]);
+    : (operators.find(o => o.operator_uid === uid) || operators[0] || { operator_uid: uid || 'admin_001', operator_name: '管理员', role: 'admin' });
   const latestRecordsLive = data.latest_records || [];
   const postsRand = seeded(20260912 + (latestRecordsLive.length || 0));
   const latestRecords = latestRecordsLive.map((r, i) => {
     if (!r || typeof r !== 'object') return r;
     const pf = (r.platform_key && PLATFORM_META[r.platform_key]) ? r.platform_key : (r.platform && Object.values(PLATFORM_META).find(m => m.name === r.platform))?.key || 'tiktok';
-    const baseViews = Number(r.views || r.message_volume_24h || r.avg_views_30d || 0) || (10000 + Math.floor(postsRand() * 120000));
-    const baseLikes = Number(r.total_likes || r.views * 0.08 || 0) || Math.floor(baseViews * (0.05 + postsRand() * 0.1));
+    const baseViews = Number(r.views || r.message_volume_24h || r.avg_views_30d || 0);
+    const baseLikes = Number(r.total_likes || r.views * 0.08 || 0) || Math.floor(Math.max(1, baseViews) * (0.05 + postsRand() * 0.1));
     const hasPosts = Array.isArray(r.posts) && r.posts.length > 0;
     if (!hasPosts && mockOn) {
-      r.posts = generatePostsForAccount(postsRand, pf, baseViews, baseLikes, 0).slice(0, 10);
+      r.posts = generatePostsForAccount(postsRand, pf, baseViews || (10000 + Math.floor(postsRand() * 120000)), baseLikes, 0).slice(0, 10);
     }
     if ((!r.daily_trend || !Array.isArray(r.daily_trend) || r.daily_trend.length < 10) && mockOn) {
       const baseAud = Number(r.followers || r.members || 0) || 50000;
@@ -231,9 +208,57 @@ export async function fetchSummary(days = 30, operatorUid, role) {
     }
     return r;
   });
+  const computeLiveDiagnosis = (list) => {
+    const diag = [];
+    if (!Array.isArray(list) || list.length === 0) {
+      diag.push({
+        id: 'diag_empty', type: 'data_missing', icon: 'Database',
+        title: '📭 暂无真实采集数据',
+        desc: '建议打开采集器或开启「模拟数据填充」开关以查看完整看板模块',
+        target_ids: [], severity: 'minor',
+      });
+      return diag;
+    }
+    const abnormalDrop = list.filter(r => {
+      if (r.entity_type === 'ACCOUNT') return Number(r.followers || 0) === 0 && Number(r.views || 0) === 0;
+      return Number(r.members || 0) === 0;
+    });
+    if (abnormalDrop.length > 0) {
+      diag.push({
+        id: 'diag_abn_' + abnormalDrop.length,
+        type: 'abnormal_drop', icon: 'AlertOctagon',
+        title: `🔴 ${abnormalDrop.length} 个对象数据为 0 / 疑似掉线`,
+        desc: '建议检查指纹浏览器登录态 / 采集器 Token / 插件 Network 请求',
+        target_ids: abnormalDrop.slice(0, 4).map(r => r.id),
+        severity: abnormalDrop.length >= 3 ? 'critical' : 'major',
+      });
+    }
+    const stalled = list.filter(r => !r.updated_at || (Date.now() - new Date(r.updated_at).getTime() > 24 * 3600 * 1000));
+    if (stalled.length > 3) {
+      diag.push({
+        id: 'diag_sta_' + stalled[0]?.id,
+        type: 'stalled_data', icon: 'AlertTriangle',
+        title: `⚡ ${stalled[0]?.account || '监测对象'} 数据断更超 24h`,
+        desc: '最近一次上报超过 24 小时，疑似采集规则失效或被风控',
+        target_ids: stalled.slice(0, 3).map(r => r.id), severity: 'major',
+      });
+    }
+    const sortedByViews = list.slice().sort((a, b) => (Number(b.views || 0) - Number(a.views || 0)));
+    const poor = sortedByViews.slice(-Math.min(3, Math.ceil(sortedByViews.length * 0.15)));
+    if (poor.length >= 2 && Number(poor[poor.length - 1]?.views || 0) > 0) {
+      diag.push({
+        id: 'diag_perf_' + poor[0]?.id,
+        type: 'reading_drop', icon: 'TrendingDown',
+        title: `📉 尾部 ${poor.length} 个账号曝光低迷，建议参考历史爆款选题节奏`,
+        desc: '建议结合爆款 Top20 封面与标题结构优化下周内容节奏',
+        target_ids: poor.map(r => r.id), severity: 'minor',
+      });
+    }
+    return diag;
+  };
   const aiDiagnosis = (Array.isArray(data.ai_diagnosis) && data.ai_diagnosis.length > 0)
     ? data.ai_diagnosis
-    : (mockOn ? fallbackMock.aiDiagnosis : []);
+    : (mockOn ? fallbackMock.aiDiagnosis : computeLiveDiagnosis(latestRecordsLive));
   const viralAlerts = (Array.isArray(data.viral_alerts) && data.viral_alerts.length > 0)
     ? data.viral_alerts
     : (mockOn ? (fallbackMock.viralAlerts || []) : []);
@@ -246,42 +271,41 @@ export async function fetchSummary(days = 30, operatorUid, role) {
     : (builtRecords.length > 0
         ? builtRecords
         : (mockOn ? fallbackMock.trend : []));
-  const emptyArr = [];
   const out = transformLive({
     currentUser,
     operators,
-    operatorStats: (Array.isArray(data.operator_stats) && data.operator_stats.length > 0 && data.operator_stats.some(s => (s.accounts_count + s.communities_count) > 0))
+    operatorStats: (Array.isArray(data.operator_stats) && data.operator_stats.length > 0 && data.operator_stats.some(s => (s.accounts_count || 0) + (s.communities_count || 0) > 0))
       ? data.operator_stats
       : (mockOn ? fallbackMock.operatorStats : emptyArr),
-    totalFollowers: (typeof data.total_followers === 'number' && data.total_followers > 0)
+    totalFollowers: (typeof data.total_followers === 'number')
       ? data.total_followers
       : (mockOn ? fallbackMock.totalFollowers : 0),
-    totalMembers: (typeof data.total_members === 'number' && data.total_members > 0)
+    totalMembers: (typeof data.total_members === 'number')
       ? data.total_members
       : (mockOn ? fallbackMock.totalMembers : 0),
-    totalViews7d: (typeof data.total_views_7d === 'number' && data.total_views_7d > 0)
+    totalViews7d: (typeof data.total_views_7d === 'number')
       ? data.total_views_7d
       : (mockOn ? fallbackMock.totalViews7d : 0),
-    platformCount: (typeof data.platform_count === 'number' && data.platform_count > 0)
+    platformCount: (typeof data.platform_count === 'number')
       ? data.platform_count
       : (mockOn ? fallbackMock.platformCount : 0),
-    accountCount: (typeof data.account_count === 'number' && data.account_count > 0)
+    accountCount: (typeof data.account_count === 'number')
       ? data.account_count
       : (mockOn ? fallbackMock.accountCount : 0),
-    communityCount: (typeof data.community_count === 'number' && data.community_count > 0)
+    communityCount: (typeof data.community_count === 'number')
       ? data.community_count
       : (mockOn ? fallbackMock.communityCount : 0),
-    abnormalCount: (typeof data.abnormal_count === 'number' && data.abnormal_count > 0)
+    abnormalCount: (typeof data.abnormal_count === 'number')
       ? data.abnormal_count
       : (mockOn ? fallbackMock.abnormalCount : 0),
     latestRecords,
-    platformTraffic: (data.platform_traffic && (Array.isArray(data.platform_traffic) || Object.keys(data.platform_traffic).length > 0))
+    platformTraffic: (data.platform_traffic && (Array.isArray(data.platform_traffic) || Object.keys(data.platform_traffic || {}).length > 0))
       ? buildTrafficFromLive(data.platform_traffic)
       : (mockOn ? fallbackMock.platformTraffic : emptyArr),
     trend,
     aiDiagnosis,
     viralAlerts,
-    platforms: dedupPlatforms(data.platforms),
+    platforms: dedupPlatforms(data.platforms || []),
     categories: [
       { key: 'all', name: '全部' },
       { key: '金融', name: '金融社区' },
@@ -395,7 +419,9 @@ function transformLive(d) {
       client_version: r.client_version,
       updated_at: r.updated_at || new Date().toISOString(),
       url: sanitizeUrl(rawUrl),
-      avatar_gradient: ['#6366f1,#8b5cf6', '#0ea5e9,#22d3ee', '#f59e0b,#ef4444', '#10b981,#14b8a6', '#ec4899,#f43f5e', '#4263EB,#3b82f6', '#FF4500,#f59e0b'][i % 7],
+      avatar_url: r.avatar_url || null,
+      avatar_data_url: r.avatar_data_url || null,
+      avatar_gradient: r.avatar_gradient || ['#6366f1,#8b5cf6', '#0ea5e9,#22d3ee', '#f59e0b,#ef4444', '#10b981,#14b8a6', '#ec4899,#f43f5e', '#4263EB,#3b82f6', '#FF4500,#f59e0b'][i % 7],
     };
       if (entityType === 'ACCOUNT') {
       const followers = Number(r.followers || r.fans || 0);
@@ -531,11 +557,11 @@ export function sanitizeUrl(u) {
   }
 }
 
-const JWT_KEY = 'matrix.jwt.access';
+const JWT_STORAGE_KEY = 'matrix_jwt_token';
 const REFRESH_KEY = 'matrix.jwt.refresh';
 
 let _jwtToken = null;
-try { _jwtToken = localStorage.getItem(JWT_KEY) || null; } catch {}
+try { _jwtToken = localStorage.getItem(JWT_STORAGE_KEY) || sessionStorage.getItem(JWT_STORAGE_KEY) || null; } catch {}
 const _authListeners = new Set();
 let _authSnapshot = { ready: false, token: _jwtToken, user: null, uid: null, role: null };
 
@@ -577,11 +603,13 @@ export async function loginWithPassword(username, password) {
   const refresh = r.refresh_token || r.data?.refresh_token;
   const user = r.current_user || r.user || r.data?.current_user || null;
   if (access) setJwtToken(access, refresh || null);
-  const snap = { token: access || null, ready: true };
+  const snap = { token: access || null, ready: true, mode: 'jwt' };
   if (user) {
     snap.user = user;
     snap.uid = user.uid || user.operator_uid || user.id;
     snap.role = user.role || 'operator';
+    snap.isAuthenticated = true;
+    snap.requireAuth = true;
   }
   _notifyAuth(snap);
   return snap;
@@ -596,7 +624,7 @@ export async function ssoPasteToken(paste) {
     if (parts && parts[1]) payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
   } catch {}
   setJwtToken(token, null);
-  const snap = { token, ready: true };
+  const snap = { token, ready: true, mode: 'jwt', requireAuth: true };
   if (payload) {
     snap.uid = payload.sub || payload.uid || payload.user_id;
     snap.role = payload.role || 'operator';
@@ -605,12 +633,13 @@ export async function ssoPasteToken(paste) {
       operator_name: payload.name || payload.username || '免登录用户',
       role: snap.role,
     };
+    snap.isAuthenticated = true;
   }
   _notifyAuth(snap);
   try {
     const me = await fetchWhoami();
     if (me && me.uid) {
-      const merge = { user: { uid: me.uid, operator_name: me.name, role: me.role || snap.role }, uid: me.uid, role: me.role || snap.role };
+      const merge = { isAuthenticated: true, mode: 'jwt', requireAuth: true, user: { uid: me.uid, operator_name: me.name, role: me.role || snap.role }, uid: me.uid, role: me.role || snap.role };
       _notifyAuth(merge);
       return { ...snap, ...merge };
     }
@@ -632,11 +661,12 @@ export async function registerWithInvite({ username, email, password, invite_cod
   const refresh = r.refresh_token || r.data?.refresh_token;
   if (access) setJwtToken(access, refresh || null);
   const user = r.current_user || r.user || r.data?.current_user || null;
-  const snap = { token: access || null, ready: true };
+  const snap = { token: access || null, ready: true, mode: 'jwt', requireAuth: true };
   if (user) {
     snap.user = user;
     snap.uid = user.uid || user.operator_uid || user.id;
     snap.role = user.role || 'operator';
+    snap.isAuthenticated = true;
   }
   _notifyAuth(snap);
   return snap;
@@ -659,8 +689,21 @@ export async function initAuth() {
   }
   const snap = {
     ready: true,
+    requireAuth: true,
+    mode: 'jwt',
     token: _jwtToken,
-    user: user ? { uid: user.uid, operator_name: user.name, role: user.role || 'operator', machine_id: user.machine_id } : null,
+    isAuthenticated: !!user,
+    user: user ? {
+      uid: user.uid,
+      operator_name: user.name,
+      role: user.role || 'operator',
+      machine_id: user.machine_id,
+      username: user.username,
+      display_name: user.display_name,
+      email: user.email,
+      avatar_gradient: user.avatar_gradient,
+      avatar_data_url: user.avatar_data_url,
+    } : null,
     uid: user?.uid || null,
     role: user?.role || null,
   };
@@ -746,6 +789,18 @@ export async function adminPatchSystemFlags(flags) {
     method: 'PATCH',
     body: JSON.stringify(flags || []),
   });
+}
+
+export async function adminClearData(scope = 'all') {
+  return adminApi('/admin/clear-data', {
+    method: 'POST',
+    body: JSON.stringify({ scope: scope || 'all', confirm: true }),
+  });
+}
+
+export async function adminDeleteAccount(accountId, { onlyRecords = false } = {}) {
+  const suffix = onlyRecords ? `/${encodeURIComponent(accountId)}/records` : `/${encodeURIComponent(accountId)}`;
+  return adminApi(`/admin/accounts${suffix}`, { method: 'DELETE' });
 }
 
 export async function adminSiteOverview() {
