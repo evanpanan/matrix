@@ -1,12 +1,31 @@
 """
 示例：Python Collector 配置文件 YAML
 用法：python scripts/python_collector.py --mode chrome --config scripts/collector_config.example.yaml
+
+📌  重要 - 站点双向握手（防止误连到别人的后端）：
+  1. 打开 Dashboard → 右上角头像 → 个人资料与安全
+  2. 下拉到「📌 采集器授权 Token」→ 生成新 Token
+  3. 弹窗里复制明文 Token，粘贴到下方 operator_token
+  4. 弹窗里显示的 🤝 MX-XXXX-XXXX 握手码，抄到下方 site_handshake_expect
+  5. 脚本启动时若三者对不上（Token.site_prefix ≠ 后端.site_prefix ≠ site_handshake_expect），
+     会直接 exit(2) 并打印红色错误，拒绝采集
 """
 
 api_base: "http://localhost:8000"
 
 operator_uid: "op_001"
 operator_name: "李运营"
+
+# ------------------------------------------------------------
+#  采集器授权 Token（格式 mxtok_<site6>_<col8>_<rand>，仅显示一次）
+# ------------------------------------------------------------
+operator_token: ""
+# ------------------------------------------------------------
+#  期望的站点握手码（与 Dashboard 弹窗上的 🤝 MX-XXXX-XXXX 一致）
+#  填了之后，对不上就拒绝启动；留空则跳过这一层的额外校验
+# ------------------------------------------------------------
+site_handshake_expect: ""
+
 machine_name: "李运营 - 运营主机 01"
 
 webhook_url: ""  # 可选，填飞书 / 钉钉 / Slack Webhook 地址

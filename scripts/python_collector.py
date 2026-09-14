@@ -309,9 +309,11 @@ class CollectorConfig:
     api_base: str = DEFAULT_API_BASE
     operator_uid: str = "op_001"
     operator_name: str = "李运营"
+    operator_token: str = ""
     machine_id: str = ""
     machine_name: str = "Python Collector"
     webhook_url: str = ""
+    site_handshake_expect: str = ""
 
 
 async def post_heartbeat(cfg: CollectorConfig, pending_count: int = 0) -> Dict[str, Any]:
@@ -320,6 +322,7 @@ async def post_heartbeat(cfg: CollectorConfig, pending_count: int = 0) -> Dict[s
         machine_name=cfg.machine_name,
         operator_uid=cfg.operator_uid,
         operator_name=cfg.operator_name,
+        operator_token=cfg.operator_token or None,
         version=COLLECT_VERSION,
         source="python_collector",
         pending_count=pending_count,
@@ -335,6 +338,99 @@ async def post_heartbeat(cfg: CollectorConfig, pending_count: int = 0) -> Dict[s
         return dict(status=0, error=str(e)[:300])
 
 
+_C_RESET = "\033[0m"
+_C_RED = "\033[1;31m"
+_C_GREEN = "\033[1;32m"
+_C_YELLOW = "\033[1;33m"
+_C_CYAN = "\033[1;36m"
+_C_BOLD = "\033[1m"
+
+
+def parse_collector_token(token: str) -> Dict[str, Any]:
+    t = (token or "").strip()
+    result = dict(raw=t, legacy=True, site_prefix="", collector_prefix="", rand="")
+    if not t.startswith("mxtok_"):
+        return result
+    rest = t[len("mxtok_"):]
+    parts = rest.split("_")
+    if len(parts) < 3:
+        return result
+    result["legacy"] = False
+    result["site_prefix"] = parts[0] or ""
+    result["collector_prefix"] = parts[1] or ""
+    result["rand"] = "_".join(parts[2:])
+    return result
+
+
+async def fetch_bootstrap(cfg: CollectorConfig) -> Dict[str, Any]:
+    params = {}
+    if cfg.operator_token:
+        params["token"] = cfg.operator_token
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            r = await client.get(f"{cfg.api_base.rstrip('/')}/api/collector/bootstrap", params=params or None)
+            body = r.json() if r.headers.get("content-type","").startswith("application/json") else dict(raw=r.text[:500])
+            return dict(status=r.status_code, body=body)
+    except Exception as e:
+        return dict(status=0, error=str(e)[:500])
+
+
+async def verify_site_handshake(cfg: CollectorConfig) -> Dict[str, Any]:
+    parsed = parse_collector_token(cfg.operator_token)
+    print(f"[BOOT] 解析 Token:  legacy={parsed['legacy']}  site={parsed['site_prefix'] or '—'}  collector={parsed['collector_prefix'] or '—'}")
+    br = await fetch_bootstrap(cfg)
+    if br.get("status") == 0:
+        return dict(ok=False, fatal=True, code="bootstrap_unreachable",
+                    message=f"无法连接后端 {cfg.api_base}: {br.get('error')}")
+    if br.get("status") not in (200,):
+        return dict(ok=False, fatal=True, code="bootstrap_http_error",
+                    message=f"bootstrap HTTP {br.get('status')}: {str(br.get('body',''))[:300]}")
+    body = br.get("body") or {}
+    site = body.get("site") or {}
+    site_prefix = site.get("site_prefix") or ""
+    handshake_code = site.get("handshake_code") or ""
+    site_name = site.get("site_name") or "未命名站点"
+    token_error = body.get("token_error") or ""
+    token_identity = body.get("token_identity") or None
+
+    issues: List[str] = []
+    if token_error == "invalid_token":
+        issues.append(f"{_C_RED}Token 格式无效或后端无法识别{_C_RESET}")
+    elif token_error == "revoked":
+        issues.append(f"{_C_RED}Token 已被吊销，请回到 Dashboard 重新生成{_C_RESET}")
+    elif token_error == "expired":
+        issues.append(f"{_C_RED}Token 已过期{_C_RESET}")
+    elif token_error == "wrong_site":
+        issues.append(f"{_C_RED}Token 属于其他站点，当前后端站点 prefix={site_prefix or '—'} 与 Token prefix={parsed['site_prefix'] or '—'} 不匹配{_C_RESET}")
+
+    if not parsed["legacy"] and parsed["site_prefix"] and site_prefix and parsed["site_prefix"] != site_prefix:
+        issues.append(
+            f"{_C_RED}Token 站点前缀不匹配：Token={parsed['site_prefix']} vs 后端返回={site_prefix}；"
+            f"请核对 Dashboard 生成页 🤝 握手码是否与目标站一致{_C_RESET}"
+        )
+
+    if cfg.site_handshake_expect and handshake_code and cfg.site_handshake_expect.strip().lower() != handshake_code.strip().lower():
+        issues.append(
+            f"{_C_RED}握手码不匹配：配置文件期望={cfg.site_handshake_expect} vs 后端实际={handshake_code}；"
+            f"请确认 api_base 是否填对，防止误连其他站{_C_RESET}"
+        )
+    elif cfg.site_handshake_expect and not handshake_code:
+        issues.append(f"{_C_YELLOW}配置了期望握手码 {cfg.site_handshake_expect}，但后端未返回 handshake_code（旧版本？）{_C_RESET}")
+
+    ok = len(issues) == 0
+    return dict(
+        ok=ok, fatal=any("吊销" in x or "过期" in x or "无效" in x or "不匹配" in x for x in issues),
+        code="ok" if ok else ("mismatch" if any("不匹配" in x for x in issues) else "token_bad"),
+        issues=issues,
+        site_name=site_name,
+        site_prefix=site_prefix,
+        handshake_code=handshake_code,
+        token_identity=token_identity,
+        token_error=token_error,
+        parsed=parsed,
+    )
+
+
 async def post_batch(cfg: CollectorConfig, items: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not items:
         return dict(status=0, accepted=0, note="empty_items")
@@ -343,6 +439,7 @@ async def post_batch(cfg: CollectorConfig, items: List[Dict[str, Any]]) -> Dict[
         machine_name=cfg.machine_name,
         operator_uid=cfg.operator_uid,
         operator_name=cfg.operator_name,
+        operator_token=cfg.operator_token or None,
         version=COLLECT_VERSION,
         source="python_collector",
         webhook_url=cfg.webhook_url or None,
@@ -523,6 +620,10 @@ def parse_args() -> argparse.Namespace:
                     help=f"后端 API 地址，默认 {DEFAULT_API_BASE}")
     ap.add_argument("--operator-uid", default=os.environ.get("MATRIX_OP_UID", "op_001"))
     ap.add_argument("--operator-name", default=os.environ.get("MATRIX_OP_NAME", "李运营"))
+    ap.add_argument("--operator-token", default=os.environ.get("MATRIX_OPERATOR_TOKEN", ""),
+                    help="采集器授权 Token（推荐：从 Dashboard 个人资料页生成，格式 mxtok_<site6>_<col8>_<rand>）")
+    ap.add_argument("--site-handshake-expect", default=os.environ.get("MATRIX_SITE_HANDSHAKE", ""),
+                    help="期望的站点握手码（如 MX-A3F7-9C12），不匹配则立即拒绝启动，防止误连到其他站点")
     ap.add_argument("--machine-name", default=os.environ.get("MATRIX_MACHINE_NAME", "Python Collector"))
     ap.add_argument("--machine-id", default=os.environ.get("MATRIX_MACHINE_ID", ""),
                     help="机器 ID，不传则用 host+operator 自动生成一个稳定 ID")
@@ -564,9 +665,11 @@ async def main() -> int:
         api_base=args.api_base or file_cfg.get("api_base", DEFAULT_API_BASE),
         operator_uid=args.operator_uid or file_cfg.get("operator_uid", "op_001"),
         operator_name=args.operator_name or file_cfg.get("operator_name", "李运营"),
+        operator_token=args.operator_token or file_cfg.get("operator_token", ""),
         machine_id=mid,
         machine_name=args.machine_name or file_cfg.get("machine_name", "Python Collector"),
         webhook_url=args.webhook_url or file_cfg.get("webhook_url", ""),
+        site_handshake_expect=args.site_handshake_expect or file_cfg.get("site_handshake_expect", ""),
     )
     user_id = args.user_id or file_cfg.get("user_id")
     profile_id = args.profile_id or file_cfg.get("profile_id")
@@ -576,10 +679,69 @@ async def main() -> int:
     print(f"  mode            : {args.mode}")
     print(f"  api_base        : {cfg.api_base}")
     print(f"  operator        : {cfg.operator_name} ({cfg.operator_uid})")
+    tok_mask = f"{cfg.operator_token[:6]}…{cfg.operator_token[-4:]}" if cfg.operator_token and len(cfg.operator_token) > 10 else (cfg.operator_token or "(未设置)")
+    print(f"  operator_token  : {tok_mask}")
     print(f"  machine         : {cfg.machine_name}  id={cfg.machine_id}")
     print(f"  targets         : {len(urls)} 个 URL")
     if args.interval: print(f"  interval        : 每 {args.interval}s 常驻轮询")
+    if cfg.site_handshake_expect: print(f"  expect handshake: 🤝 {cfg.site_handshake_expect}")
     print("=" * 80)
+
+    print("\n[BOOT] 校验站点 & Token 双向匹配...")
+    verify = await verify_site_handshake(cfg)
+    if verify.get("ok"):
+        hc = verify.get("handshake_code") or "—"
+        sn = verify.get("site_name") or "未命名站点"
+        sp = verify.get("site_prefix") or "—"
+        print(f"[BOOT] {_C_GREEN}✓ 双向匹配成功{_C_RESET}")
+        print(f"         站点: {_C_BOLD}{sn}{_C_RESET}  prefix={sp}")
+        print(f"         🤝 握手码: {_C_CYAN}{_C_BOLD}{hc}{_C_RESET}")
+        ti = verify.get("token_identity")
+        if ti:
+            oplabel = ""
+            if ti.get("operator_name"): oplabel = f"  运营={ti['operator_name']}({ti.get('operator_uid','')[:6]}…)"
+            ct = ti.get("collector_label") or f"col_{(ti.get('collector_id') or '')[:8]}…"
+            print(f"         Token 身份: {_C_BOLD}{ct}{_C_RESET}{oplabel}")
+        print()
+    else:
+        code = verify.get("code") or "unknown"
+        print()
+        print(f"{_C_RED}{_C_BOLD}" + "=" * 80 + _C_RESET)
+        print(f"{_C_RED}{_C_BOLD}  ✗ 站点/Token 校验失败，拒绝启动 (exit=2)  code={code}{_C_RESET}")
+        print(f"{_C_RED}{_C_BOLD}" + "-" * 80 + _C_RESET)
+        msg = verify.get("message")
+        if msg:
+            print(f"{_C_RED}   · {msg}{_C_RESET}")
+        for idx, issue in enumerate(verify.get("issues") or [], 1):
+            print(f"{_C_RED}   {idx}. {issue}{_C_RESET}")
+        hc = verify.get("handshake_code")
+        sn = verify.get("site_name")
+        sp = verify.get("site_prefix")
+        te = verify.get("token_error")
+        print()
+        if sn or sp or hc:
+            print(f"   后端返回的站点信息：")
+            if sn: print(f"     · name    = {sn}")
+            if sp: print(f"     · prefix  = {sp}")
+            if hc: print(f"     · handshake= {hc}")
+        if te:
+            print(f"   后端 token_error = {te}")
+        parsed = verify.get("parsed") or {}
+        if not parsed.get("legacy") and parsed.get("site_prefix"):
+            print(f"   您 Token 中的 site_prefix = {parsed['site_prefix']}")
+        print()
+        print(f"   👉 解决方案：")
+        if code == "bootstrap_unreachable" or not verify.get("fatal") and not verify.get("issues"):
+            print(f"      · 检查 api_base 是否可达：{cfg.api_base}")
+            print(f"      · 本机防火墙/代理是否放行了该地址")
+        else:
+            print(f"      · 回到 Dashboard → 个人资料 → 采集器 Token → 生成新 Token")
+            print(f"      · 核对弹窗上的 🤝 MX-XXXX-XXXX 与下方显示的 handshake 是否一致")
+            print(f"      · 确认 api_base={cfg.api_base} 是否指向您预期的站点")
+            if verify.get("token_error") == "revoked":
+                print(f"      · 当前 Token 已被吊销，必须重新生成")
+        print(f"{_C_RED}{_C_BOLD}" + "=" * 80 + _C_RESET)
+        return 2
 
     interval = max(int(args.interval), 0)
     round_no = 0

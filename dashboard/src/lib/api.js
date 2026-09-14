@@ -3,6 +3,29 @@ import { generateMockData, applyRBACFilter, generatePostsForAccount, generateDai
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
 const SESSION_KEY = 'matrix_current_operator_uid';
+const LOCAL_MOCK_FLAG_KEY = 'matrix_local_mock_enabled';
+
+export function getLocalMockOverride() {
+  try {
+    const raw = localStorage.getItem(LOCAL_MOCK_FLAG_KEY);
+    if (raw === null) return null;
+    return raw === '1';
+  } catch { return null; }
+}
+export function setLocalMockOverride(enabled) {
+  try {
+    localStorage.setItem(LOCAL_MOCK_FLAG_KEY, enabled ? '1' : '0');
+  } catch {}
+}
+export function clearLocalMockOverride() {
+  try { localStorage.removeItem(LOCAL_MOCK_FLAG_KEY); } catch {}
+}
+function isMockGloballyEnabled(serverFlag) {
+  const local = getLocalMockOverride();
+  if (local !== null) return local;
+  if (serverFlag === false) return false;
+  return true;
+}
 
 function getStoredUid() {
   try {
@@ -26,6 +49,20 @@ function getAuthHeaders() {
     if (token) out['Authorization'] = `Bearer ${token}`;
   } catch { /* noop */ }
   return out;
+}
+
+async function safeFetch(url, opts = {}) {
+  try {
+    const headers = {
+      ...(opts.headers || {}),
+      ...getAuthHeaders(),
+    };
+    const r = await fetch(url, { ...opts, headers });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  } catch (e) {
+    return null;
+  }
 }
 
 export function setJwtToken(token, refresh) {
@@ -59,20 +96,6 @@ export function clearSession() {
   if (typeof _notifyAuth === 'function') _notifyAuth({ token: null, user: null, uid: null, role: null, ready: true });
 }
 
-async function safeFetch(url, opts = {}) {
-  try {
-    const headers = {
-      ...(opts.headers || {}),
-      ...getAuthHeaders(),
-    };
-    const r = await fetch(url, { ...opts, headers });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return await r.json();
-  } catch (e) {
-    return null;
-  }
-}
-
 export async function fetchWhoami() {
   const storedUid = getStoredUid();
   const data = await safeFetch(`${API_BASE}/whoami`);
@@ -96,6 +119,43 @@ export async function fetchWhoami() {
   };
 }
 
+function buildEmptyShell(uid, operators) {
+  const emptyArr = [];
+  const currentUser = (operators && operators.length)
+    ? (operators.find(o => o.operator_uid === uid) || operators[0])
+    : { operator_uid: uid || 'admin_001', operator_name: '未登录演示', role: 'operator' };
+  return transformLive({
+    currentUser,
+    operators: operators || OPERATORS,
+    operatorStats: emptyArr,
+    totalFollowers: 0,
+    totalMembers: 0,
+    totalViews7d: 0,
+    platformCount: 0,
+    accountCount: 0,
+    communityCount: 0,
+    abnormalCount: 0,
+    latestRecords: emptyArr,
+    platformTraffic: emptyArr,
+    trend: emptyArr,
+    aiDiagnosis: emptyArr,
+    viralAlerts: emptyArr,
+    platforms: emptyArr,
+    categories: [
+      { key: 'all', name: '全部' },
+      { key: '金融', name: '金融社区' },
+      { key: '社媒', name: '国内社媒' },
+      { key: '海外', name: '海外平台' },
+      { key: '社区', name: '公开社区' },
+    ],
+    entityTypes: [
+      { key: 'all', name: '全部类型' },
+      { key: 'ACCOUNT', name: '仅账号' },
+      { key: 'COMMUNITY', name: '仅社区' },
+    ],
+  });
+}
+
 export async function fetchSummary(days = 30, operatorUid, role) {
   const uid = operatorUid || getStoredUid();
   if (uid) setStoredUid(uid);
@@ -105,10 +165,45 @@ export async function fetchSummary(days = 30, operatorUid, role) {
   if (role) params.set('role', role);
   const url = `${API_BASE}/summary?${params.toString()}`;
   const data = await safeFetch(url);
+  const serverMockFlag = data ? data.mock_enabled : null;
+  const mockOn = isMockGloballyEnabled(serverMockFlag);
   const fallbackMock = generateMockData();
   if (!data) {
+    if (!mockOn) {
+      const shell = buildEmptyShell(uid, OPERATORS);
+      shell.mock_enabled = false;
+      return shell;
+    }
     const filtered = uid ? applyRBACFilter(fallbackMock, uid) : fallbackMock;
-    return transformLive(filtered);
+    const out = transformLive(filtered);
+    out.mock_enabled = true;
+    return out;
+  }
+  if (!mockOn) {
+    const shell = buildEmptyShell(uid, data.operators || OPERATORS);
+    if (data.current_user) {
+      shell.currentUser = {
+        operator_uid: data.current_user.uid,
+        operator_name: data.current_user.name || data.current_user.uid,
+        role: data.current_user.role || 'operator',
+      };
+    }
+    shell.mock_enabled = false;
+    shell.operators = shell.operators || data.operators || OPERATORS;
+    shell.platforms = dedupPlatforms(data.platforms || shell.platforms || []);
+    shell.categories = [
+      { key: 'all', name: '全部' },
+      { key: '金融', name: '金融社区' },
+      { key: '社媒', name: '国内社媒' },
+      { key: '海外', name: '海外平台' },
+      { key: '社区', name: '公开社区' },
+    ];
+    shell.entityTypes = [
+      { key: 'all', name: '全部类型' },
+      { key: 'ACCOUNT', name: '仅账号' },
+      { key: 'COMMUNITY', name: '仅社区' },
+    ];
+    return shell;
   }
   const operators = OPERATORS;
   const currentUser = (data.current_user && data.current_user.uid)
@@ -121,50 +216,68 @@ export async function fetchSummary(days = 30, operatorUid, role) {
   const latestRecordsLive = data.latest_records || [];
   const postsRand = seeded(20260912 + (latestRecordsLive.length || 0));
   const latestRecords = latestRecordsLive.map((r, i) => {
+    if (!r || typeof r !== 'object') return r;
     const pf = (r.platform_key && PLATFORM_META[r.platform_key]) ? r.platform_key : (r.platform && Object.values(PLATFORM_META).find(m => m.name === r.platform))?.key || 'tiktok';
     const baseViews = Number(r.views || r.message_volume_24h || r.avg_views_30d || 0) || (10000 + Math.floor(postsRand() * 120000));
     const baseLikes = Number(r.total_likes || r.views * 0.08 || 0) || Math.floor(baseViews * (0.05 + postsRand() * 0.1));
     const hasPosts = Array.isArray(r.posts) && r.posts.length > 0;
-    const merge = transformRecordLive(r);
-    if (!hasPosts) {
-      merge.posts = generatePostsForAccount(postsRand, pf, baseViews, baseLikes, 0).slice(0, 10);
+    if (!hasPosts && mockOn) {
+      r.posts = generatePostsForAccount(postsRand, pf, baseViews, baseLikes, 0).slice(0, 10);
     }
-    if (!merge.daily_trend || !Array.isArray(merge.daily_trend) || merge.daily_trend.length < 10) {
+    if ((!r.daily_trend || !Array.isArray(r.daily_trend) || r.daily_trend.length < 10) && mockOn) {
       const baseAud = Number(r.followers || r.members || 0) || 50000;
       const baseViewsTrend = Number(r.views || r.message_volume_24h || baseAud * 0.6) || 10000;
-      merge.daily_trend = fallbackMock.latestRecords[i % fallbackMock.latestRecords.length]?.daily_trend || generateDailyTrend(postsRand, baseAud, baseViewsTrend);
+      r.daily_trend = fallbackMock.latestRecords[i % fallbackMock.latestRecords.length]?.daily_trend || generateDailyTrend(postsRand, baseAud, baseViewsTrend);
     }
-    return merge;
+    return r;
   });
   const aiDiagnosis = (Array.isArray(data.ai_diagnosis) && data.ai_diagnosis.length > 0)
     ? data.ai_diagnosis
-    : fallbackMock.aiDiagnosis;
+    : (mockOn ? fallbackMock.aiDiagnosis : []);
   const viralAlerts = (Array.isArray(data.viral_alerts) && data.viral_alerts.length > 0)
     ? data.viral_alerts
-    : (fallbackMock.viralAlerts || []);
+    : (mockOn ? (fallbackMock.viralAlerts || []) : []);
   const trendLive = data.trend || [];
   const trendPlatformDim = Array.isArray(trendLive) && trendLive.length > 0 &&
     trendLive.some(row => Object.keys(row).some(k => k !== 'date' && typeof row[k] === 'number' && !isFinite(row.updated_at)));
+  const builtRecords = buildTrendFromRecords(data.all_records || data.daily_trend || [], days);
   const trend = trendPlatformDim
     ? trendLive
-    : (buildTrendFromRecords(data.all_records || data.daily_trend || [], days).length > 0
-        ? buildTrendFromRecords(data.all_records || data.daily_trend || [], days)
-        : fallbackMock.trend);
-  return transformLive({
+    : (builtRecords.length > 0
+        ? builtRecords
+        : (mockOn ? fallbackMock.trend : []));
+  const emptyArr = [];
+  const out = transformLive({
     currentUser,
     operators,
-    operatorStats: data.operator_stats || fallbackMock.operatorStats,
-    totalFollowers: data.total_followers ?? fallbackMock.totalFollowers,
-    totalMembers: data.total_members ?? fallbackMock.totalMembers,
-    totalViews7d: data.total_views_7d ?? fallbackMock.totalViews7d,
-    platformCount: data.platform_count ?? fallbackMock.platformCount,
-    accountCount: data.account_count ?? fallbackMock.accountCount,
-    communityCount: data.community_count ?? fallbackMock.communityCount,
-    abnormalCount: data.abnormal_count ?? fallbackMock.abnormalCount,
+    operatorStats: (Array.isArray(data.operator_stats) && data.operator_stats.length > 0 && data.operator_stats.some(s => (s.accounts_count + s.communities_count) > 0))
+      ? data.operator_stats
+      : (mockOn ? fallbackMock.operatorStats : emptyArr),
+    totalFollowers: (typeof data.total_followers === 'number' && data.total_followers > 0)
+      ? data.total_followers
+      : (mockOn ? fallbackMock.totalFollowers : 0),
+    totalMembers: (typeof data.total_members === 'number' && data.total_members > 0)
+      ? data.total_members
+      : (mockOn ? fallbackMock.totalMembers : 0),
+    totalViews7d: (typeof data.total_views_7d === 'number' && data.total_views_7d > 0)
+      ? data.total_views_7d
+      : (mockOn ? fallbackMock.totalViews7d : 0),
+    platformCount: (typeof data.platform_count === 'number' && data.platform_count > 0)
+      ? data.platform_count
+      : (mockOn ? fallbackMock.platformCount : 0),
+    accountCount: (typeof data.account_count === 'number' && data.account_count > 0)
+      ? data.account_count
+      : (mockOn ? fallbackMock.accountCount : 0),
+    communityCount: (typeof data.community_count === 'number' && data.community_count > 0)
+      ? data.community_count
+      : (mockOn ? fallbackMock.communityCount : 0),
+    abnormalCount: (typeof data.abnormal_count === 'number' && data.abnormal_count > 0)
+      ? data.abnormal_count
+      : (mockOn ? fallbackMock.abnormalCount : 0),
     latestRecords,
     platformTraffic: (data.platform_traffic && (Array.isArray(data.platform_traffic) || Object.keys(data.platform_traffic).length > 0))
       ? buildTrafficFromLive(data.platform_traffic)
-      : fallbackMock.platformTraffic,
+      : (mockOn ? fallbackMock.platformTraffic : emptyArr),
     trend,
     aiDiagnosis,
     viralAlerts,
@@ -182,6 +295,8 @@ export async function fetchSummary(days = 30, operatorUid, role) {
       { key: 'COMMUNITY', name: '仅社区' },
     ],
   });
+  out.mock_enabled = mockOn;
+  return out;
 }
 
 function buildTrafficFromLive(pt) {
@@ -556,7 +671,17 @@ export async function initAuth() {
 export async function adminApi(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   if (_jwtToken && !headers.Authorization) headers.Authorization = `Bearer ${_jwtToken}`;
-  if (opts.body && typeof opts.body !== 'string' && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+  if (opts.body !== undefined && opts.body !== null && !headers['Content-Type']) {
+    if (typeof opts.body === 'string') {
+      let t = null;
+      try { t = opts.body.trim().charAt(0); } catch {}
+      if (t === '{' || t === '[') headers['Content-Type'] = 'application/json';
+    } else if (opts.body instanceof FormData) {
+      // browser sets multipart boundary automatically
+    } else {
+      headers['Content-Type'] = 'application/json';
+    }
+  }
   const url = path.startsWith('http') ? path : `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
   return safeFetch(url, { ...opts, headers });
 }
@@ -583,4 +708,49 @@ export async function updateRecord(recordId, patch) {
   });
 }
 
+export async function listCollectorTokens() {
+  return adminApi('/user/me/collector-tokens', { method: 'GET' });
+}
+
+export async function listOperators() {
+  return adminApi('/admin/operators', { method: 'GET' });
+}
+
+export async function createCollectorToken(label, expires_days, operator_uid) {
+  const body = {
+    label: label || '未命名采集器',
+    expires_days: Number(expires_days) > 0 ? Number(expires_days) : 365,
+  };
+  if (operator_uid) body.operator_uid = operator_uid;
+  const endpoint = operator_uid ? '/admin/collector-tokens' : '/user/me/collector-tokens';
+  return adminApi(endpoint, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function revokeCollectorToken(id) {
+  return adminApi(`/user/me/collector-tokens/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+export async function listCollectorMachines(collectorId) {
+  return adminApi(`/user/me/collector-tokens/${encodeURIComponent(collectorId)}/machines`, { method: 'GET' });
+}
+
+export async function adminListSystemFlags() {
+  return adminApi('/admin/system-flags', { method: 'GET' });
+}
+
+export async function adminPatchSystemFlags(flags) {
+  return adminApi('/admin/system-flags', {
+    method: 'PATCH',
+    body: JSON.stringify(flags || []),
+  });
+}
+
+export async function adminSiteOverview() {
+  return adminApi('/admin/site-overview', { method: 'GET' });
+}
+
 export { PLATFORM_META, OPERATORS, PLATFORM_LOGOS };
+

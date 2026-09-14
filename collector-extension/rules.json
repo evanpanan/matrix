@@ -11,24 +11,7 @@
     },
     "condition": {
       "urlFilter": "*://*/*",
-      "resourceTypes": ["xmlhttprequest", "fetch", "script", "image", "stylesheet"]
-    }
-  },
-  {
-    "id": 2,
-    "priority": 1,
-    "action": {
-      "type": "modifyHeaders",
-      "responseHeaders": [
-        { "header": "Access-Control-Allow-Origin", "operation": "set", "value": "*" },
-        { "header": "Access-Control-Allow-Methods", "operation": "set", "value": "GET,POST,PUT,DELETE,OPTIONS,PATCH,HEAD" },
-        { "header": "Access-Control-Allow-Headers", "operation": "set", "value": "Content-Type,Authorization,X-Requested-With,Accept,Origin,X-Matrix-Signature" },
-        { "header": "Access-Control-Allow-Credentials", "operation": "set", "value": "true" }
-      ]
-    },
-    "condition": {
-      "urlFilter": "|http*://*/*",
-      "resourceTypes": ["xmlhttprequest", "fetch"]
+      "resourceTypes": ["xmlhttprequest", "script", "image", "stylesheet", "other"]
     }
   }
 ]

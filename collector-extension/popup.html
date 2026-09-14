@@ -3,105 +3,224 @@
 <head>
 <meta charset="utf-8" />
 <title>Matrix Collector</title>
-<script src="https://cdn.tailwindcss.com"></script>
 <style>
-  body { width: 380px; min-height: 520px; background: #FAFBFF; }
-  .pill { display:inline-flex; align-items:center; gap:6px; padding:2px 10px; border-radius:999px; font-size:11px; font-weight:600; }
-  .dot { width:8px; height:8px; border-radius:999px; }
-  input, select { outline: none; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { width: 400px; min-height: 560px; background: #FAFBFF;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", Roboto, Helvetica, Arial, sans-serif;
+    color: #1a1a2e; font-size: 13px; line-height: 1.5;
+  }
+  .wrap { padding: 14px; }
   .gr { background-image: linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#0ea5e9 100%); }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .row.sb { justify-content: space-between; }
+  .pill { display:inline-flex; align-items:center; gap:6px; padding:3px 11px;
+    border-radius:999px; font-size:11px; font-weight:700; }
+  .dot { width:8px; height:8px; border-radius:999px; flex-shrink: 0; }
+  .card { background:#fff; border-radius: 16px; border:1px solid rgba(0,0,0,.05);
+    box-shadow: 0 1px 2px rgba(0,0,0,.03); padding: 12px; }
+  .card + .card { margin-top: 11px; }
+  .label { display:block; font-size: 11px; color: #64748b; font-weight: 600;
+    margin-bottom: 6px; letter-spacing: .2px; }
+  .label .hint { margin-left: 6px; font-weight: 500; color: #94a3b8; }
+  input { display:block; width:100%; height:38px; border-radius: 12px;
+    border:1px solid rgba(0,0,0,.08); background: #fff; padding: 0 11px;
+    font-size: 12.5px; font-weight: 500; color:#0f172a; outline: none;
+    transition: border-color .15s ease, box-shadow .15s ease;
+  }
+  input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,.12); }
+  input[readonly] { background:#f8fafc; color:#64748b; cursor: not-allowed; }
+  input[type=password] { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 7px; }
+  .mini { border-radius: 12px; background: #f8fafc; padding: 8px 9px; }
+  .mini .k { font-size:10.5px; color:#94a3b8; font-weight:600; margin-bottom: 2px;}
+  .mini .v { font-size: 12px; color:#0f172a; font-weight:700; word-break: break-all; }
+  .sep { height: 1px; background: rgba(0,0,0,.06); margin: 10px 0; }
+  .title { font-weight: 800; font-size: 14px; color:#0f172a; }
+  .sub { font-size: 11px; color:#64748b; font-weight:500; }
+  .site-banner { border-radius: 14px; padding: 10px 11px; margin-bottom: 11px;
+    border:1px solid rgba(0,0,0,.06); display:flex; align-items:center; gap:10px; }
+  .site-banner .hc { width: 36px; height: 36px; border-radius: 10px; display:flex;
+    align-items:center; justify-content:center; color:#fff; font-weight:900; letter-spacing: .5px;
+    flex-shrink: 0; font-size: 11px; }
+  .site-banner .name { font-weight:800; font-size: 13px; color:#0f172a; line-height:1.25;}
+  .site-banner .hs { font-size: 11px; font-family: ui-monospace, Menlo, monospace; color:#475569;
+    font-weight:700; margin-top: 2px; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 11px; }
+  button { cursor:pointer; font-family: inherit; }
+  .btn { height: 40px; border-radius: 12px; font-size:13px; font-weight:700;
+    display:inline-flex; align-items:center; justify-content:center; gap:7px;
+    border:none; transition: transform .1s ease, filter .15s ease, opacity .15s; }
+  .btn:active { transform: translateY(1px); }
+  .btn-primary { background: linear-gradient(135deg,#6366f1,#8b5cf6); color:#fff; box-shadow:0 4px 14px rgba(99,102,241,.28);}
+  .btn-primary:hover { filter: brightness(1.03);}
+  .btn-secondary { background:#fff; color:#0369a1; border:1px solid rgba(0,0,0,.08); }
+  .btn-secondary:hover { background:#f0f9ff; }
+  .btn[disabled] { opacity:.55; cursor: not-allowed; filter: grayscale(.3);}
+  .status-green { background:#ecfdf5; color:#047857; }
+  .status-green .dot { background:#10b981; }
+  .status-yellow { background:#fffbeb; color:#92400e; }
+  .status-yellow .dot { background:#f59e0b; }
+  .status-orange { background:#fff7ed; color:#9a3412; }
+  .status-orange .dot { background:#f97316; }
+  .status-red { background:#fef2f2; color:#991b1b; }
+  .status-red .dot { background:#ef4444; }
+  .status-grey { background:#f1f5f9; color:#475569; }
+  .status-grey .dot { background:#94a3b8; }
+  .tag { display:inline-flex; align-items:center; padding: 2px 8px; border-radius: 8px;
+    font-size: 10.5px; font-weight:800; }
+  .tag-ok { background:#dcfce7; color:#166534; }
+  .tag-warn { background:#fef3c7; color:#854d0e; }
+  .tag-err { background:#fee2e2; color:#991b1b; }
+  .tag-info { background:#dbeafe; color:#1e40af; }
+  .errbox { margin-top: 10px; border-radius:12px; background:#fef2f2;
+    border:1px solid #fecaca; color:#991b1b; font-size:11.5px; padding: 9px 10px;
+    font-weight: 500; line-height: 1.55; word-break: break-word; }
+  .successbox { margin-top: 10px; border-radius:12px; background:#ecfdf5;
+    border:1px solid #a7f3d0; color:#065f46; font-size:11.5px; padding: 9px 10px; font-weight:600;}
+  .foot { margin-top:14px; text-align:center; color:#94a3b8; font-size:11px; line-height:1.6;}
+  .svgw { color: #fff; }
+  .badge-line { display:flex; align-items:center; gap:7px; flex-wrap: wrap; }
+  h3 { margin: 0; font-size: 13px; font-weight: 800; color:#0f172a;}
+  .section-h { display:flex; align-items:center; justify-content: space-between; margin-bottom: 9px;}
+  .kvlist { display:grid; grid-template-columns: 92px 1fr; gap: 4px 10px; font-size: 12px; }
+  .kvlist .kk { color:#64748b; font-weight:600;}
+  .kvlist .vv { color:#0f172a; font-weight:600; word-break: break-all;}
+  .mt8 { margin-top: 8px; } .mt10 { margin-top:10px; }
+  .warn-banner { border-radius:12px; padding: 9px 11px; margin-top: 10px;
+    border:1px dashed #f59e0b; background:#fffbeb; color:#78350f; font-size: 11.5px; font-weight:600; line-height: 1.55;}
+  .bad-banner { border-radius:12px; padding: 9px 11px; margin-top:10px;
+    border:1px dashed #ef4444; background:#fef2f2; color:#991b1b; font-size: 11.5px; font-weight:700; line-height:1.55;}
+  .linkbutton { background: none; border: none; padding: 0;
+    color:#4f46e5; font-weight: 700; font-size: 11.5px; cursor: pointer; text-decoration: underline;}
 </style>
 </head>
-<body class="text-ink-900 text-sm antialiased">
-  <div class="px-4 pt-4 pb-5">
-    <div class="flex items-center justify-between mb-3">
-      <div class="flex items-center gap-2.5">
-        <div class="gr text-white w-9 h-9 rounded-xl flex items-center justify-center shadow-sm">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="7" r="2.2"/><circle cx="18" cy="7" r="2.2"/><circle cx="12" cy="16" r="2.2"/><path d="M6 7 L12 16 L18 7"/></svg>
-        </div>
-        <div>
-          <div class="font-bold text-[15px] leading-tight">Matrix Collector</div>
-          <div class="text-[11px] text-ink-400 font-medium">Chrome Extension · v2.0</div>
-        </div>
-      </div>
-      <div id="statePill" class="pill bg-amber-50 text-amber-700"><span class="dot bg-amber-500"></span><span id="stateText">启动中…</span></div>
-    </div>
-
-    <div class="bg-white rounded-2xl border border-black/[0.05] shadow-sm p-3.5 space-y-3">
-      <div>
-        <label class="block text-[11px] text-ink-500 font-semibold mb-1.5 tracking-wide">归属运营</label>
-        <select id="opSelect" class="w-full h-10 rounded-xl border border-black/[0.07] bg-white px-3 text-sm font-medium"></select>
-      </div>
-      <div class="grid grid-cols-2 gap-2.5">
-        <div>
-          <label class="block text-[11px] text-ink-500 font-semibold mb-1.5 tracking-wide">机器名称</label>
-          <input id="machineName" class="w-full h-10 rounded-xl border border-black/[0.07] bg-white px-3 text-sm tabular-nums" />
-        </div>
-        <div>
-          <label class="block text-[11px] text-ink-500 font-semibold mb-1.5 tracking-wide">机器 ID</label>
-          <input id="machineId" readonly class="w-full h-10 rounded-xl border border-black/[0.05] bg-slate-50 px-3 text-[11px] text-ink-500 tabular-nums" />
-        </div>
+<body>
+<div class="wrap">
+  <div class="row sb mb8" style="margin-bottom: 11px;">
+    <div class="row" style="gap:10px;">
+      <div class="gr text-white w-9 h-9 rounded-xl flex items-center justify-center shadow-sm">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="white" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="7" r="2.2"/><circle cx="18" cy="7" r="2.2"/><circle cx="12" cy="16" r="2.2"/><path d="M6 7 L12 16 L18 7"/></svg>
       </div>
       <div>
-        <label class="block text-[11px] text-ink-500 font-semibold mb-1.5 tracking-wide">后端服务地址</label>
-        <div class="flex gap-2">
-          <input id="serverUrl" class="flex-1 h-10 rounded-xl border border-black/[0.07] bg-white px-3 text-sm tabular-nums" placeholder="http://localhost:8000" />
-          <button id="saveBtn" class="h-10 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold shadow-sm">保存</button>
-        </div>
+        <div class="title" style="font-size:15px;">Matrix Collector</div>
+        <div class="sub">Chrome Extension · v2.1 · 站点双向握手</div>
+      </div>
+    </div>
+    <div id="statePill" class="pill status-grey"><span class="dot"></span><span id="stateText">启动中…</span></div>
+  </div>
+
+  <!-- 顶部：站点识别横幅（关键：显示与哪个站点握手） -->
+  <div id="siteBanner" class="site-banner status-grey">
+    <div class="hc gr" id="siteHcChar">MX</div>
+    <div style="flex:1; min-width:0;">
+      <div class="name" id="siteNameTxt">正在连接站点…</div>
+      <div class="hs">握手码：<span id="siteHandshakeTxt">—</span>
+        <span id="sitePrefixTxt" style="margin-left:6px;color:#64748b;">prefix: —</span>
+      </div>
+    </div>
+    <div id="siteMatchBadge" class="tag tag-info">校验中</div>
+  </div>
+
+  <!-- 站点不匹配红框告警，默认隐藏 -->
+  <div id="siteMismatchBox" class="bad-banner" style="display:none;">
+    🔴 <b>站点不匹配！禁止采集！</b><br/>
+    当前后端返回握手码 <span class="mono" id="mServerHand">—</span>，但 Token 属于站点 <span class="mono" id="mTokenHand">—</span>。<br/>
+    请检查「后端服务地址」或更换正确 Token。
+  </div>
+
+  <div id="compatWarn" class="warn-banner" style="display:none;">
+    🟡 未设置采集器 Token：数据会上报但标记 <b>未授权</b>，请去 Dashboard 个人中心生成 Token 并粘贴到下方。
+  </div>
+
+  <div class="card">
+    <div class="section-h"><h3>① 身份与绑定</h3><span id="bindBadge" class="tag tag-warn">未绑定</span></div>
+    <div style="display:flex; flex-direction:column; gap: 9px;">
+      <div>
+        <label class="label">归属运营 UID <span class="hint">(输入或从建议列表选)</span></label>
+        <input id="opSelect" list="opDatalist" placeholder="选择或输入 operator_uid" />
+        <datalist id="opDatalist"></datalist>
       </div>
       <div>
-        <label class="block text-[11px] text-ink-500 font-semibold mb-1.5 tracking-wide">Webhook（可选 · 爆款事件推送）</label>
-        <input id="webhook" class="w-full h-10 rounded-xl border border-black/[0.07] bg-white px-3 text-sm tabular-nums" placeholder="https://open.feishu.cn/..." />
+        <label class="label">运营显示名（可自定义）</label>
+        <input id="opName" placeholder="例如：李运营" />
       </div>
-    </div>
-
-    <div class="mt-3 bg-white rounded-2xl border border-black/[0.05] shadow-sm p-3.5">
-      <div class="flex items-center justify-between mb-2.5">
-        <div class="font-semibold text-[13.5px]">实时状态</div>
-        <div class="pill bg-slate-50 text-slate-600"><span id="queueBadge">0</span> 条待同步</div>
+      <div>
+        <label class="label row sb">
+          <span>采集器 Token <span class="hint">（从 Dashboard 「个人中心 → 采集器授权」生成）</span></span>
+          <span id="tokenStatus" class="tag tag-warn" style="font-size:10.5px;">未设置</span>
+        </label>
+        <input id="opToken" type="password" placeholder="mxtok_{site6}_{col8}_xxxxxxxxxxxxxxxx" autocomplete="off" />
+        <div class="sub mt8" style="color:#94a3b8;">格式：<span class="mono" style="background:#f8fafc;padding:1px 4px;border-radius:6px;font-weight:700;">mxtok_a3f7c9_c012ab9f_…</span>，粘贴后会自动解析归属站点并双向校验。</div>
       </div>
-      <div class="grid grid-cols-2 gap-2 text-[12px]">
-        <div class="rounded-xl bg-slate-50/80 p-2.5">
-          <div class="text-ink-400 text-[11px] font-medium mb-0.5">最后心跳</div>
-          <div id="lastHb" class="text-ink-800 font-semibold tabular-nums">—</div>
+      <div class="grid2">
+        <div>
+          <label class="label">机器名称</label>
+          <input id="machineName" placeholder="如：李运营-MacBook" />
         </div>
-        <div class="rounded-xl bg-slate-50/80 p-2.5">
-          <div class="text-ink-400 text-[11px] font-medium mb-0.5">最近同步</div>
-          <div id="lastFlush" class="text-ink-800 font-semibold tabular-nums">—</div>
-        </div>
-        <div class="rounded-xl bg-slate-50/80 p-2.5 col-span-1">
-          <div class="text-ink-400 text-[11px] font-medium mb-0.5">最近采集</div>
-          <div id="lastCollect" class="text-ink-800 font-semibold tabular-nums">—</div>
-        </div>
-        <div class="rounded-xl bg-slate-50/80 p-2.5 col-span-1">
-          <div class="text-ink-400 text-[11px] font-medium mb-0.5">后端连接</div>
-          <div id="connStatus" class="text-ink-800 font-semibold tabular-nums">—</div>
+        <div>
+          <label class="label">机器 ID</label>
+          <input id="machineId" readonly />
         </div>
       </div>
-      <div id="errorBox" class="hidden mt-3 rounded-xl bg-red-50 border border-red-100 text-red-700 text-[11.5px] p-2.5 break-words"></div>
-    </div>
-
-    <div class="mt-3 grid grid-cols-2 gap-2.5">
-      <button id="triggerBtn" class="h-11 rounded-xl bg-white border border-black/[0.07] hover:bg-sky-50 text-sky-700 text-[13px] font-semibold shadow-sm">
-        <span class="inline-flex items-center justify-center gap-1.5">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 V4 M12 20 V22 M4.93 4.93 L6.34 6.34 M17.66 17.66 L19.07 19.07 M2 12 H4 M20 12 H22 M4.93 19.07 L6.34 17.66 M17.66 6.34 L19.07 4.93"/><circle cx="12" cy="12" r="4"/></svg>
-          采集当前页
-        </span>
-      </button>
-      <button id="flushBtn" class="h-11 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-[13px] font-semibold shadow-md">
-        <span class="inline-flex items-center justify-center gap-1.5">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12 a9 9 0 0 1 15.5 -6.36 L21 8"/><path d="M21 3 V8 H16"/><path d="M21 12 a9 9 0 0 1 -15.5 6.36 L3 16"/><path d="M3 21 V16 H8"/></svg>
-          立即同步全部
-        </span>
-      </button>
-    </div>
-
-    <div class="mt-4 text-[11px] text-ink-400 text-center leading-relaxed">
-      心跳每 3 分钟 · 数据每 60 秒同步<br/>
-      浏览器右上角点击插件即可查看
+      <div class="kvlist mt10" id="tokenParsedBox" style="display:none;">
+        <div class="kk">Token 归属站点</div><div class="vv"><span class="mono" id="tSitePrefix">—</span> · <span id="tColPrefix" class="mono">—</span>（采集器前缀）</div>
+        <div class="kk">Token 解析身份</div><div class="vv" id="tIdentTxt">—</div>
+      </div>
     </div>
   </div>
 
-  <script src="popup.js"></script>
+  <div class="card">
+    <div class="section-h"><h3>② 后端地址</h3><button id="testHbBtn" type="button" class="btn-secondary btn" style="height:30px;padding:0 11px;font-size:11.5px;">测试心跳</button></div>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <input id="serverUrl" placeholder="http://localhost:8000" style="flex:1;" />
+      <button id="saveBtn" type="button" class="btn btn-primary" style="padding:0 16px;">保存</button>
+    </div>
+    <div class="mt8 sub">如需给多站点部署的不同甲方干活，请切换这里 + 更换对应 Token。</div>
+    <div>
+      <label class="label mt10">Webhook（可选 · 爆款事件推送）</label>
+      <input id="webhook" placeholder="https://open.feishu.cn/... / https://qyapi.weixin.qq.com/..." />
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-h">
+      <h3>③ 实时状态</h3>
+      <div class="row" style="gap:6px;">
+        <div class="pill status-grey" id="queuePill"><span id="queueBadge" style="font-weight:800;">0</span> 条待同步</div>
+      </div>
+    </div>
+    <div class="grid3">
+      <div class="mini"><div class="k">最后心跳</div><div class="v" id="lastHb">—</div></div>
+      <div class="mini"><div class="k">最近同步</div><div class="v" id="lastFlush">—</div></div>
+      <div class="mini"><div class="k">今日采集</div><div class="v" id="todayN" style="color:#4f46e5;">0</div></div>
+      <div class="mini"><div class="k">最近采集</div><div class="v" id="lastCollect">—</div></div>
+      <div class="mini"><div class="k">后端连接</div><div class="v" id="connStatus">—</div></div>
+      <div class="mini"><div class="k">采集器号</div><div class="v mono" id="colId" style="font-size:11px;">—</div></div>
+    </div>
+    <div id="successBox" class="successbox" style="display:none;"></div>
+    <div id="errorBox" class="errbox" style="display:none;"></div>
+  </div>
+
+  <div class="actions">
+    <button id="triggerBtn" type="button" class="btn btn-secondary">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 V4 M12 20 V22 M4.93 4.93 L6.34 6.34 M17.66 17.66 L19.07 19.07 M2 12 H4 M20 12 H22 M4.93 19.07 L6.34 17.66 M17.66 6.34 L19.07 4.93"/><circle cx="12" cy="12" r="4"/></svg>
+      采集当前页
+    </button>
+    <button id="flushBtn" type="button" class="btn btn-primary">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12 a9 9 0 0 1 15.5 -6.36 L21 8"/><path d="M21 3 V8 H16"/><path d="M21 12 a9 9 0 0 1 -15.5 6.36 L3 16"/><path d="M3 21 V16 H8"/></svg>
+      立即同步全部
+    </button>
+  </div>
+
+  <div class="foot">
+    心跳每 3 分钟 · 数据每 60 秒同步<br/>
+    浏览器右上角点击插件即可随时查看 · <button type="button" class="linkbutton" id="resetCfg">重置本地配置</button>
+  </div>
+</div>
+<script src="popup.js"></script>
 </body>
 </html>

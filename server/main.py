@@ -250,6 +250,8 @@ CREATE INDEX IF NOT EXISTS idx_snap_dt   ON daily_snapshots(snapshot_date, platf
 CREATE TABLE IF NOT EXISTS machines (
     machine_id          TEXT PRIMARY KEY,
     machine_name        TEXT,
+    site_id           TEXT,
+    collector_id      TEXT,
     operator_uid        TEXT,
     operator_name       TEXT,
     version             TEXT,
@@ -259,8 +261,36 @@ CREATE TABLE IF NOT EXISTS machines (
     last_hb_at          INTEGER DEFAULT 0,
     user_agent          TEXT,
     status              TEXT DEFAULT 'online',
-    ip_address          TEXT
+    ip_address          TEXT,
+    today_records_count   INTEGER DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS idx_machine_site   ON machines(site_id);
+CREATE INDEX IF NOT EXISTS idx_machine_col  ON machines(collector_id);
+CREATE INDEX IF NOT EXISTS idx_machine_op   ON machines(operator_uid);
+CREATE INDEX IF NOT EXISTS idx_machine_hb   ON machines(last_hb_at DESC);
+
+CREATE TABLE IF NOT EXISTS sites (
+    site_id             TEXT PRIMARY KEY,
+    site_name           TEXT NOT NULL,
+    handshake_code      TEXT NOT NULL UNIQUE,
+    created_at          TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS collector_tokens (
+    id                  TEXT PRIMARY KEY,
+    site_id             TEXT NOT NULL,
+    operator_uid        TEXT NOT NULL,
+    token_hash          TEXT NOT NULL UNIQUE,
+    label               TEXT,
+    created_at          TEXT DEFAULT (datetime('now')),
+    last_used_at        TEXT,
+    expires_at          TEXT,
+    revoked_at          TEXT,
+    status              TEXT DEFAULT 'active'
+);
+CREATE INDEX IF NOT EXISTS idx_col_site  ON collector_tokens(site_id);
+CREATE INDEX IF NOT EXISTS idx_col_op    ON collector_tokens(operator_uid);
+CREATE INDEX IF NOT EXISTS idx_col_status ON collector_tokens(status);
 
 CREATE TABLE IF NOT EXISTS users (
     id                  TEXT PRIMARY KEY,
@@ -316,6 +346,24 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_user        ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_time        ON audit_logs(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS operator_tokens (
+    id                  TEXT PRIMARY KEY,
+    operator_uid        TEXT NOT NULL,
+    token_hash          TEXT NOT NULL UNIQUE,
+    label               TEXT,
+    created_at          TEXT DEFAULT (datetime('now')),
+    last_used_at        TEXT,
+    expires_at          TEXT,
+    revoked_at          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_optok_op          ON operator_tokens(operator_uid);
+
+CREATE TABLE IF NOT EXISTS system_flags (
+    key                 TEXT PRIMARY KEY,
+    value               TEXT,
+    updated_at          TEXT DEFAULT (datetime('now'))
+);
 """
 
 
@@ -332,32 +380,117 @@ def get_conn():
         conn.close()
 
 
+def get_system_flag(c: sqlite3.Connection, key: str, default: Any = None) -> Any:
+    row = c.execute("SELECT value FROM system_flags WHERE key=?", (key,)).fetchone()
+    if row is None:
+        return default
+    return row["value"]
+
+
+def set_system_flag(c: sqlite3.Connection, key: str, value: Any) -> None:
+    c.execute(
+        "INSERT INTO system_flags(key,value,updated_at) VALUES (?,?,datetime('now')) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')",
+        (key, str(value) if value is not None else None),
+    )
+
+
+def is_mock_enabled(c: Optional[sqlite3.Connection] = None) -> bool:
+    def _check(conn: sqlite3.Connection) -> bool:
+        v = get_system_flag(conn, "mock_enabled", None)
+        if v is None:
+            return SEED_MOCK_ON_EMPTY
+        return str(v).lower() in {"1", "true", "yes", "on"}
+    if c is None:
+        with get_conn() as conn:
+            return _check(conn)
+    return _check(c)
+
+
 def init_db():
     with get_conn() as c:
+        preflight_alters = [
+            ("users", [("display_name", "TEXT"), ("avatar_gradient", "TEXT"), ("avatar_data_url", "TEXT")]),
+            ("machines", [("site_id", "TEXT"), ("collector_id", "TEXT"), ("today_records_count", "INTEGER DEFAULT 0")]),
+        ]
+        exists_tables = set(r["name"] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall())
+        for tname, add_cols in preflight_alters:
+            if tname not in exists_tables:
+                continue
+            existing = set(r["name"] for r in c.execute(f"PRAGMA table_info({tname})").fetchall())
+            for col, tdef in add_cols:
+                if col not in existing:
+                    try:
+                        c.execute(f"ALTER TABLE {tname} ADD COLUMN {col} {tdef}")
+                    except Exception:
+                        pass
         c.executescript(SCHEMA_SQL)
-        cols = set(r["name"] for r in c.execute("PRAGMA table_info(users)").fetchall())
-        for add in [
-            ("display_name", "TEXT"),
-            ("avatar_gradient", "TEXT"),
-            ("avatar_data_url", "TEXT"),
-        ]:
-            if add[0] not in cols:
-                try:
-                    c.execute(f"ALTER TABLE users ADD COLUMN {add[0]} {add[1]}")
-                except Exception:
-                    pass
+        if get_system_flag(c, "mock_enabled", None) is None:
+            set_system_flag(c, "mock_enabled", "true" if SEED_MOCK_ON_EMPTY else "false")
+        if get_system_flag(c, "site_initialized_v1", None) != "1":
+            cur = c.execute("SELECT COUNT(*) AS n FROM sites")
+            if cur.fetchone()["n"] == 0:
+                import uuid as _uuid
+                raw_id = _uuid.uuid4().hex[:10]
+                handshake = "MX-" + secrets.token_hex(2).upper() + "-" + secrets.token_hex(2).upper()
+                c.execute(
+                    "INSERT INTO sites(site_id,site_name,handshake_code) VALUES (?,?,?)",
+                    (raw_id, "Matrix 数据矩阵平台", handshake),
+                )
+            need_migrate = c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='operator_tokens'").fetchone() is not None and \
+                           c.execute("SELECT COUNT(*) AS n FROM operator_tokens").fetchone()["n"] > 0
+            if need_migrate:
+                site_row = c.execute("SELECT site_id FROM sites LIMIT 1").fetchone()
+                sid = site_row["site_id"]
+                rows = c.execute("SELECT id,operator_uid,token_hash,label,created_at,last_used_at,expires_at,revoked_at FROM operator_tokens").fetchall()
+                for r in rows:
+                    c.execute(
+                        "INSERT OR IGNORE INTO collector_tokens(id,site_id,operator_uid,token_hash,label,created_at,last_used_at,expires_at,revoked_at,status) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                        (r["id"], sid, r["operator_uid"], r["token_hash"], r["label"] or "迁移自旧采集器Token",
+                         r["created_at"], r["last_used_at"], r["expires_at"], r["revoked_at"],
+                         "revoked" if r["revoked_at"] else "active"),
+                    )
+                c.execute("UPDATE machines SET site_id=?", (sid,))
+            set_system_flag(c, "site_initialized_v1", "1")
         for op in OPERATORS:
             c.execute(
                 "INSERT OR IGNORE INTO operators(operator_uid,operator_name,role,avatar_color) VALUES (?,?,?,?)",
                 (op["operator_uid"], op["operator_name"], op["role"], AVATAR_POOL[0]),
             )
-        if SEED_MOCK_ON_EMPTY:
+        if is_mock_enabled(c):
             cur = c.execute("SELECT COUNT(*) AS n FROM accounts")
             if cur.fetchone()["n"] == 0:
                 seed_demo_accounts(c)
         cur = c.execute("SELECT COUNT(*) AS n FROM users")
         if cur.fetchone()["n"] == 0:
             seed_initial_admin(c)
+
+
+def get_current_site(c: Optional[sqlite3.Connection] = None) -> Dict[str, Any]:
+    def _q(conn: sqlite3.Connection) -> Dict[str, Any]:
+        row = conn.execute("SELECT site_id, site_name, handshake_code FROM sites LIMIT 1").fetchone()
+        if row is None:
+            return {
+                "site_id": "default",
+                "site_name": "Matrix 数据矩阵平台",
+                "handshake_code": "MX-DEFA-ULT0",
+            }
+        return {
+            "site_id": row["site_id"],
+            "site_name": row["site_name"],
+            "handshake_code": row["handshake_code"],
+        }
+    if c is None:
+        with get_conn() as conn:
+            return _q(conn)
+    return _q(c)
+
+
+def gen_collector_plaintext(site: Dict[str, Any], collector_id: str) -> str:
+    site_token = (site.get("site_id") or "").lower()[:6] or "default"
+    col_token = (collector_id or "").lower()[:8] or secrets.token_hex(4)
+    rand = secrets.token_urlsafe(16).replace("-", "a").replace("_", "b")
+    return f"mxtok_{site_token}_{col_token}_{rand}"
 
 
 def seed_demo_accounts(c: sqlite3.Connection):
@@ -634,6 +767,7 @@ class HeartbeatRequest(BaseModel):
     machine_name: Optional[str] = None
     operator_uid: Optional[str] = None
     operator_name: Optional[str] = None
+    operator_token: Optional[str] = None
     version: Optional[str] = None
     source: Optional[str] = "chrome_extension"
     pending_count: Optional[int] = 0
@@ -705,6 +839,7 @@ class CollectRequest(BaseModel):
     machine_name: Optional[str] = None
     operator_uid: Optional[str] = None
     operator_name: Optional[str] = None
+    operator_token: Optional[str] = None
     version: Optional[str] = None
     source: Optional[str] = "chrome_extension"
     count: Optional[int] = 0
@@ -820,6 +955,98 @@ async def fire_webhook(url: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": False, "error": str(e)[:500]}
 
 
+# ============================================================
+# Operator Token (采集器身份凭证) helpers
+# ============================================================
+OPTOKEN_PREFIX = "mxtok_"
+
+
+def _hash_token(raw: str) -> str:
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def generate_collector_token_plaintext() -> str:
+    return OPTOKEN_PREFIX + secrets.token_urlsafe(32)
+
+
+def verify_operator_identity(
+    conn: sqlite3.Connection,
+    machine_id: str,
+    operator_uid: Optional[str],
+    operator_token: Optional[str],
+) -> Dict[str, Any]:
+    """
+    四端对齐校验：site_id ↔ machine_id ↔ operator_uid ↔ collector_token
+    规则（向后兼容，避免老插件挂掉）：
+      1. 没有传 operator_token → 允许兼容模式，返回 authorized=False 但 ok=True
+      2. 传了 token：
+         a. token_hash 在 collector_tokens 中查不到 / 已吊销 / 已过期 → 403 拒绝
+         b. token 绑定的 operator_uid 与请求 operator_uid 不一致 → 403 拒绝
+      3. machine_id 在 machines 表已有绑定 operator_uid：
+         a. 与请求 operator_uid 不一致 → 403 拒绝（防止一台机器被多人共享 token 盗采）
+      4. 通过 → 返回 authorized=True，并更新 token.last_used_at / 写入 machine 首次绑定
+    """
+    now = _dt.datetime.now().isoformat(timespec="seconds")
+    site = get_current_site(conn)
+    site_id = site["site_id"]
+    machine_row = conn.execute("SELECT operator_uid, collector_id, site_id FROM machines WHERE machine_id=?", (machine_id,)).fetchone()
+    existing_machine_op = machine_row["operator_uid"] if machine_row else None
+    existing_machine_collector = machine_row["collector_id"] if machine_row else None
+    existing_machine_site = machine_row["site_id"] if machine_row else None
+
+    token_op_uid: Optional[str] = None
+    token_id: Optional[str] = None
+    token_site_id: Optional[str] = None
+    if operator_token:
+        token_hash = _hash_token(operator_token)
+        row = conn.execute(
+            "SELECT id, site_id, operator_uid, expires_at, revoked_at, status FROM collector_tokens WHERE token_hash=?",
+            (token_hash,),
+        ).fetchone()
+        if row is None:
+            row = conn.execute(
+                "SELECT id, operator_uid, expires_at, revoked_at FROM operator_tokens WHERE token_hash=?",
+                (token_hash,),
+            ).fetchone()
+            if row is None:
+                raise HTTPException(403, detail="forbidden_invalid_token")
+            token_op_uid = row["operator_uid"]
+            token_id = row["id"]
+        else:
+            if row["status"] != "active" or row["revoked_at"]:
+                raise HTTPException(403, detail="forbidden_token_revoked")
+            if row["expires_at"] and row["expires_at"] < now:
+                raise HTTPException(403, detail="forbidden_token_expired")
+            token_op_uid = row["operator_uid"]
+            token_id = row["id"]
+            token_site_id = row["site_id"]
+        if token_site_id and token_site_id != site_id:
+            raise HTTPException(403, detail="forbidden_token_wrong_site")
+        if operator_uid and token_op_uid != operator_uid:
+            raise HTTPException(403, detail="forbidden_operator_token_mismatch")
+        if token_id:
+            conn.execute("UPDATE collector_tokens SET last_used_at=? WHERE id=?", (now, token_id))
+        operator_uid = operator_uid or token_op_uid
+
+    if not operator_uid and existing_machine_op:
+        operator_uid = existing_machine_op
+
+    if existing_machine_op and operator_uid and existing_machine_op != operator_uid:
+        raise HTTPException(403, detail="forbidden_machine_bound_to_other_operator")
+    if existing_machine_collector and token_id and existing_machine_collector != token_id:
+        raise HTTPException(403, detail="forbidden_machine_bound_to_other_collector")
+    if existing_machine_site and token_site_id and existing_machine_site != token_site_id:
+        raise HTTPException(403, detail="forbidden_machine_bound_to_other_site")
+
+    return dict(
+        authorized=bool(operator_token),
+        operator_uid=operator_uid,
+        token_id=token_id,
+        site_id=site_id,
+        collector_id=token_id,
+    )
+
+
 def upsert_account(conn: sqlite3.Connection, r: CollectItem) -> str:
     pk = (r.platform_key or "").strip() or (r.platform or "").lower()
     name = (r.account or "").strip()
@@ -895,7 +1122,7 @@ def insert_record(conn: sqlite3.Connection, r: CollectItem):
     conn.execute(
         """INSERT INTO records(id,account_id,entity_type,account,platform,platform_key,target_url,followers,following,likes,views,comments,collect,engagement_rate,
                               members,online,message_volume_24h,posts_24h,sentiment_bull,sentiment_bear,symbol_price,symbol_change_pct,
-                              extra,latest_post,posts,source,operator_uid,operator_name,machine_id,machine_name,client_version,updated_at,timestamp_ms)
+                              extra,latest_post,posts,source,operator_uid,operator_name,machine_id,machine_name,client_version,error,updated_at,timestamp_ms)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (rec_id, account_id or None, r.entity_type or "ACCOUNT", r.account, r.platform or platform_meta(r.platform_key or "")["name"],
          (r.platform_key or ""), r.target_url or None,
@@ -906,6 +1133,7 @@ def insert_record(conn: sqlite3.Connection, r: CollectItem):
          json.dumps(r.latest_post or {}, ensure_ascii=False),
          json.dumps([p.model_dump() for p in (r.posts or [])], ensure_ascii=False),
          r.source or "chrome_extension", r.operator_uid or None, r.operator_name or None, r.machine_id or None, r.machine_name or None, r.client_version or None,
+         None,
          _dt.datetime.now().isoformat(timespec="seconds"), ts_ms),
     )
     if account_id:
@@ -992,16 +1220,116 @@ def debug_auth(request: Request, token: Optional[str] = Depends(oauth2_scheme), 
     return info
 
 
+# ============================================================
+# Collector 公开接口（插件启动时拉配置
+# ============================================================
+
+@app.get("/api/collector/bootstrap", tags=["collector"])
+def api_collector_bootstrap(token: Optional[str] = None):
+    """
+    插件/脚本启动时调用：
+    1. 返回 site 信息（用于双向匹配：Token 前缀 ↔ 本站握手码）
+    2. 返回所有有效运营列表（用于填充归属运营下拉 datalist 建议）
+    3. 若传了 token，还返回该 token 绑定的 operator 身份信息（用于自检 + 错误细分）
+    """
+    with get_conn() as c:
+        site = get_current_site(c)
+        operators = [
+            dict(operator_uid=r["operator_uid"], operator_name=r["operator_name"], role=r["role"])
+            for r in c.execute("SELECT operator_uid, operator_name, role FROM operators WHERE status='active' ORDER BY operator_name").fetchall()
+        ]
+        me = None
+        token_error = None
+        if token:
+            th = _hash_token(token)
+            row = c.execute(
+                "SELECT t.id, t.site_id, t.operator_uid, t.label, t.created_at, t.last_used_at, t.expires_at, t.revoked_at, t.status,"
+                " o.operator_name, o.role AS operator_role"
+                " FROM collector_tokens t LEFT JOIN operators o ON o.operator_uid=t.operator_uid WHERE t.token_hash=?",
+                (th,),
+            ).fetchone()
+            if row is None:
+                row2 = c.execute(
+                    "SELECT t.id, t.operator_uid, t.label, t.created_at, t.last_used_at, t.expires_at, t.revoked_at,"
+                    " o.operator_name, o.role AS operator_role"
+                    " FROM operator_tokens t LEFT JOIN operators o ON o.operator_uid=t.operator_uid WHERE t.token_hash=?",
+                    (th,),
+                ).fetchone()
+                if row2 is None:
+                    token_error = "invalid_token"
+                else:
+                    now = _dt.datetime.now().isoformat(timespec="seconds")
+                    valid = (row2["revoked_at"] is None) and not (row2["expires_at"] and row2["expires_at"] < now)
+                    me = dict(
+                        token_id=row2["id"],
+                        site_id=site["site_id"],
+                        operator_uid=row2["operator_uid"],
+                        operator_name=row2["operator_name"],
+                        operator_role=row2["operator_role"],
+                        label=row2["label"] or "兼容旧Token",
+                        valid=valid,
+                        revoked=bool(row2["revoked_at"]),
+                        expires_at=row2["expires_at"],
+                        last_used_at=row2["last_used_at"],
+                    )
+            else:
+                now = _dt.datetime.now().isoformat(timespec="seconds")
+                valid = (row["status"] == "active") and (row["revoked_at"] is None) and not (row["expires_at"] and row["expires_at"] < now)
+                if row["site_id"] and row["site_id"] != site["site_id"]:
+                    token_error = "wrong_site"
+                elif not valid:
+                    token_error = "revoked" if row["revoked_at"] else "expired"
+                me = dict(
+                    token_id=row["id"],
+                    site_id=row["site_id"] or site["site_id"],
+                    operator_uid=row["operator_uid"],
+                    operator_name=row["operator_name"],
+                    operator_role=row["operator_role"],
+                    label=row["label"],
+                    valid=valid and (not token_error),
+                    revoked=bool(row["revoked_at"]),
+                    expires_at=row["expires_at"],
+                    last_used_at=row["last_used_at"],
+                )
+    return {
+        "ok": True,
+        "server_version": APP_VERSION,
+        "site": {
+            "site_id": site["site_id"],
+            "site_name": site["site_name"],
+            "handshake_code": site["handshake_code"],
+            "site_prefix": (site["site_id"] or "").lower()[:6],
+        },
+        "operators": operators,
+        "token_identity": me,
+        "token_error": token_error,
+        "docs": "把 token 放到 heartbeat / collect-data body 的 operator_token 字段",
+    }
+
+
+# ============================================================
+# Heartbeat + Collect-data（改造版
+# ============================================================
+
+
 @app.post("/api/heartbeat", tags=["collector"])
 def api_heartbeat(hb: HeartbeatRequest, request: Request):
     ip = request.client.host if request.client else None
     ts_ms = hb.timestamp_ms or now_ms()
     with get_conn() as c:
+        site = get_current_site(c)
+        ident = verify_operator_identity(c, hb.machine_id, hb.operator_uid, hb.operator_token)
+        operator_uid = ident["operator_uid"] or hb.operator_uid
+        collector_id = ident.get("collector_id") or ident.get("token_id")
+        if operator_uid and not hb.operator_uid:
+            hb.operator_uid = operator_uid
         c.execute(
-            """INSERT INTO machines(machine_id,machine_name,operator_uid,operator_name,version,source,pending_count,last_collect_at,last_hb_at,user_agent,status,ip_address)
-               VALUES(?,?,?,?,?,?,?,?,?,?, 'online', ?)
+            """INSERT INTO machines(machine_id,machine_name,site_id,collector_id,operator_uid,operator_name,version,source,pending_count,last_collect_at,last_hb_at,user_agent,status,ip_address)
+               VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'online', ?)
                ON CONFLICT(machine_id) DO UPDATE SET
                  machine_name=excluded.machine_name,
+                 site_id=COALESCE(excluded.site_id, machines.site_id),
+                 collector_id=COALESCE(excluded.collector_id, machines.collector_id),
                  operator_uid=excluded.operator_uid,
                  operator_name=excluded.operator_name,
                  version=excluded.version,
@@ -1011,17 +1339,30 @@ def api_heartbeat(hb: HeartbeatRequest, request: Request):
                  last_hb_at=excluded.last_hb_at,
                  user_agent=excluded.user_agent,
                  status='online',
-                 ip_address=excluded.ip_address
+                 ip_address=COALESCE(excluded.ip_address, machines.ip_address)
             """,
-            (hb.machine_id, hb.machine_name, hb.operator_uid, hb.operator_name, hb.version or APP_VERSION,
+            (hb.machine_id, hb.machine_name,
+             site["site_id"], collector_id,
+             operator_uid, hb.operator_name, hb.version or APP_VERSION,
              hb.source or "chrome_extension", int(hb.pending_count or 0), int(hb.last_collect_at or 0),
              ts_ms, hb.user_agent or None, ip),
         )
-        if hb.operator_uid:
-            c.execute("UPDATE operators SET last_login_at=datetime('now') WHERE operator_uid=?", (hb.operator_uid,))
+        if operator_uid:
+            c.execute("UPDATE operators SET last_login_at=datetime('now') WHERE operator_uid=?", (operator_uid,))
         c.execute("UPDATE machines SET status='offline' WHERE last_hb_at < ?", (now_ms() - 15 * 60 * 1000,))
     return {
         "ok": True,
+        "authorized": ident.get("authorized", False),
+        "site": {
+            "site_id": site["site_id"],
+            "site_name": site["site_name"],
+            "handshake_code": site["handshake_code"],
+            "site_prefix": (site["site_id"] or "").lower()[:6],
+        },
+        "collector": {
+            "collector_id": collector_id,
+            "operator_uid": operator_uid,
+        },
         "received_at": ts_ms,
         "next_heartbeat_ms": 3 * 60 * 1000,
         "server_version": APP_VERSION,
@@ -1034,10 +1375,14 @@ async def api_collect_data(req: CollectRequest, request: Request):
     viral_events: List[Dict[str, Any]] = []
     accepted = 0
     with get_conn() as c:
+        site = get_current_site(c)
+        ident = verify_operator_identity(c, req.machine_id, req.operator_uid, req.operator_token)
+        operator_uid = ident["operator_uid"] or req.operator_uid
+        collector_id = ident.get("collector_id") or ident.get("token_id")
         for item in req.items:
             item.machine_id = item.machine_id or req.machine_id
             item.machine_name = item.machine_name or req.machine_name
-            item.operator_uid = item.operator_uid or req.operator_uid
+            item.operator_uid = operator_uid or item.operator_uid or req.operator_uid
             item.operator_name = item.operator_name or req.operator_name
             item.client_version = item.client_version or req.version
             item.source = item.source or req.source or "chrome_extension"
@@ -1058,12 +1403,30 @@ async def api_collect_data(req: CollectRequest, request: Request):
             except Exception as e:
                 print(f"[collect][WARN] insert failed: {e}")
                 continue
+        if accepted > 0:
+            today = _dt.date.today().isoformat()
+            c.execute(
+                "UPDATE machines SET today_records_count = COALESCE(today_records_count, 0) + ?, last_collect_at=?, site_id=COALESCE(site_id,?), collector_id=COALESCE(collector_id,?) WHERE machine_id=?",
+                (accepted, now_ms(), site["site_id"], collector_id, req.machine_id),
+            )
+            # 次日重置计数器：通过 system_flags 存 last_reset_day
+            last_reset = get_system_flag(c, "machines_today_reset_day", None)
+            if last_reset != today:
+                c.execute("UPDATE machines SET today_records_count = 0 WHERE today_records_count IS NOT NULL")
+                set_system_flag(c, "machines_today_reset_day", today)
     webhook_results: List[Any] = []
     if viral_events and req.webhook_url:
         for ev in viral_events:
             webhook_results.append(await fire_webhook(req.webhook_url, ev))
     return {
         "ok": True,
+        "authorized": ident.get("authorized", False),
+        "site": {
+            "site_id": site["site_id"],
+            "site_name": site["site_name"],
+            "handshake_code": site["handshake_code"],
+            "site_prefix": (site["site_id"] or "").lower()[:6],
+        },
         "received": len(req.items),
         "accepted": accepted,
         "viral_events": len(viral_events),
@@ -1188,7 +1551,7 @@ def api_reset_admin(request: Request):
     with get_conn() as c:
         admin = c.execute(
             "SELECT id, username, role, created_at, "
-            " (SELECT MAX(created_at) FROM audit_logs a WHERE a.user_id=u.id AND a.action='login') AS last_login"
+            " (SELECT MAX(created_at) FROM audit_logs a WHERE a.user_id=u.id AND a.event='login') AS last_login"
             " FROM users u WHERE role='admin' ORDER BY created_at ASC LIMIT 1"
         ).fetchone()
         if not admin:
@@ -1236,12 +1599,12 @@ def api_reset_admin(request: Request):
 
 
 @app.get("/api/user/me", tags=["user"])
-def api_user_me(user: Dict[str, Any] = Depends(require_auth)):
+def api_user_me(user: Dict[str, Any] = Depends(require_current_user)):
     with get_conn() as c:
         row = c.execute(
             "SELECT u.id,u.username,u.email,u.role,u.status,u.operator_uid,u.display_name,u.avatar_gradient,u.avatar_data_url,u.created_at,u.updated_at,"
             " COALESCE((SELECT COUNT(1) FROM audit_logs a WHERE a.user_id=u.id),0) AS audit_count,"
-            " COALESCE((SELECT MAX(a.created_at) FROM audit_logs a WHERE a.user_id=u.id AND a.action='login'),u.updated_at) AS last_login_at"
+            " COALESCE((SELECT MAX(a.created_at) FROM audit_logs a WHERE a.user_id=u.id AND a.event='login'),u.updated_at) AS last_login_at"
             " FROM users u WHERE u.id=?",
             (user["id"],),
         ).fetchone()
@@ -1266,8 +1629,221 @@ def api_user_me(user: Dict[str, Any] = Depends(require_auth)):
         }
 
 
+# -------- 我的采集器 Token --------
+
+class CreateCollectorTokenRequest(BaseModel):
+    label: Optional[str] = Field(None, max_length=64)
+    expires_days: Optional[int] = Field(None, ge=1, le=365 * 10)
+
+
+@app.get("/api/user/me/collector-tokens", tags=["user"])
+def api_user_list_collector_tokens(user: Dict[str, Any] = Depends(require_current_user)):
+    op_uid = user.get("operator_uid")
+    if not op_uid:
+        return {"items": [], "note": "账号未绑定 operator_uid，请联系管理员在「用户管理」绑定运营档案"}
+    with get_conn() as c:
+        site = get_current_site(c)
+        rows = c.execute(
+            "SELECT id, site_id, operator_uid, label, status, created_at, last_used_at, expires_at, revoked_at "
+            "FROM collector_tokens WHERE operator_uid=? AND site_id=? ORDER BY created_at DESC LIMIT 100",
+            (op_uid, site["site_id"]),
+        ).fetchall()
+        items = []
+        hb_cutoff = now_ms() - 15 * 60 * 1000
+        for r in rows:
+            now = _dt.datetime.now().isoformat(timespec="seconds")
+            machine_rows = c.execute(
+                "SELECT machine_id, machine_name, last_hb_at, today_records_count, pending_count, source, version, status, ip_address "
+                "FROM machines WHERE collector_id=? AND site_id=? ORDER BY last_hb_at DESC",
+                (r["id"], site["site_id"]),
+            ).fetchall()
+            online_count = sum(1 for m in machine_rows if (m["last_hb_at"] or 0) >= hb_cutoff)
+            today_total = sum(int(m["today_records_count"] or 0) for m in machine_rows)
+            items.append(dict(
+                id=r["id"],
+                site_id=r["site_id"],
+                site_name=site["site_name"],
+                handshake_code=site["handshake_code"],
+                operator_uid=r["operator_uid"],
+                label=r["label"],
+                created_at=r["created_at"],
+                last_used_at=r["last_used_at"],
+                expires_at=r["expires_at"],
+                revoked_at=r["revoked_at"],
+                status=(r["status"] or "active") if r["revoked_at"] is None else "revoked",
+                _computed_status="revoked" if r["revoked_at"] else ("expired" if r["expires_at"] and r["expires_at"] < now else "active"),
+                online_machines=online_count,
+                today_records=today_total,
+                machines=[
+                    {
+                        "machine_id": m["machine_id"],
+                        "machine_name": m["machine_name"],
+                        "last_hb_at": m["last_hb_at"],
+                        "today_records": int(m["today_records_count"] or 0),
+                        "pending_count": int(m["pending_count"] or 0),
+                        "source": m["source"],
+                        "version": m["version"],
+                        "status": m["status"],
+                        "ip": m["ip_address"],
+                        "online": bool((m["last_hb_at"] or 0) >= hb_cutoff),
+                    }
+                    for m in machine_rows
+                ],
+            ))
+    return {"items": items, "operator_uid": op_uid, "site": site}
+
+
+@app.post("/api/user/me/collector-tokens", tags=["user"])
+def api_user_create_collector_token(body: CreateCollectorTokenRequest, request: Request, user: Dict[str, Any] = Depends(require_current_user)):
+    if user.get("role") != "admin":
+        raise HTTPException(403, detail="admin_only: 仅管理员可创建采集器 Token，请联系管理员分配")
+    op_uid = user.get("operator_uid")
+    if not op_uid:
+        raise HTTPException(400, detail="account_not_bound_to_operator")
+    ip, ua = _client_meta(request)
+    with get_conn() as c:
+        site = get_current_site(c)
+        token_id = "col_" + secrets.token_hex(8)
+        plain = gen_collector_plaintext(site, token_id)
+        expires_at = None
+        if body.expires_days and body.expires_days > 0:
+            expires_at = (_dt.datetime.utcnow() + _dt.timedelta(days=body.expires_days)).isoformat(timespec="seconds")
+        c.execute(
+            "INSERT INTO collector_tokens(id,site_id,operator_uid,token_hash,label,expires_at,created_at,status) VALUES (?,?,?,?,?,?,datetime('now'),'active')",
+            (token_id, site["site_id"], op_uid, _hash_token(plain), (body.label or "").strip()[:64] or None, expires_at),
+        )
+        write_audit(c, user["id"], "create_collector_token", True, f"token_id={token_id} label={body.label}", ip, ua)
+    return {
+        "ok": True,
+        "id": token_id,
+        "token": plain,
+        "note": "⚠️ 此明文 token 仅显示一次，丢失不可找回，请妥善保存",
+        "operator_uid": op_uid,
+        "site": {
+            "site_id": site["site_id"],
+            "site_name": site["site_name"],
+            "handshake_code": site["handshake_code"],
+            "site_prefix": (site["site_id"] or "").lower()[:6],
+        },
+        "collector_prefix": (token_id or "").lower()[:8],
+        "label": body.label,
+        "expires_at": expires_at,
+        "usage": "粘贴到插件「采集器 Token」字段或 Python 脚本 --operator-token / YAML operator_token 即可；粘贴后会自动识别站点并核对握手码",
+    }
+
+
+@app.delete("/api/user/me/collector-tokens/{token_id}", tags=["user"])
+def api_user_revoke_collector_token(token_id: str, request: Request, user: Dict[str, Any] = Depends(require_current_user)):
+    op_uid = user.get("operator_uid")
+    if not op_uid:
+        raise HTTPException(404, "token_not_found")
+    ip, ua = _client_meta(request)
+    with get_conn() as c:
+        site = get_current_site(c)
+        row = c.execute("SELECT id, operator_uid, site_id FROM collector_tokens WHERE id=?", (token_id,)).fetchone()
+        if not row or row["operator_uid"] != op_uid or row["site_id"] != site["site_id"]:
+            raise HTTPException(404, "token_not_found")
+        c.execute(
+            "UPDATE collector_tokens SET revoked_at=datetime('now'), status='revoked' WHERE id=?",
+            (token_id,),
+        )
+        write_audit(c, user["id"], "revoke_collector_token", True, f"token_id={token_id}", ip, ua)
+    return {"ok": True, "id": token_id, "revoked": True}
+
+
+@app.get("/api/user/me/collector-tokens/{token_id}/machines", tags=["user"])
+def api_user_collector_machines(token_id: str, user: Dict[str, Any] = Depends(require_current_user)):
+    op_uid = user.get("operator_uid")
+    if not op_uid:
+        return {"items": [], "token_id": token_id}
+    with get_conn() as c:
+        site = get_current_site(c)
+        row = c.execute("SELECT id, operator_uid, site_id FROM collector_tokens WHERE id=?", (token_id,)).fetchone()
+        if not row or row["operator_uid"] != op_uid or row["site_id"] != site["site_id"]:
+            raise HTTPException(404, "token_not_found")
+        rows = c.execute(
+            "SELECT machine_id, machine_name, last_hb_at, last_collect_at, today_records_count, pending_count, source, version, status, ip_address, user_agent, operator_uid, operator_name "
+            "FROM machines WHERE collector_id=? AND site_id=? ORDER BY last_hb_at DESC LIMIT 50",
+            (token_id, site["site_id"]),
+        ).fetchall()
+        hb_cutoff = now_ms() - 15 * 60 * 1000
+        items = [
+            {
+                "machine_id": r["machine_id"],
+                "machine_name": r["machine_name"],
+                "last_hb_at": r["last_hb_at"],
+                "last_collect_at": r["last_collect_at"],
+                "today_records": int(r["today_records_count"] or 0),
+                "pending": int(r["pending_count"] or 0),
+                "source": r["source"],
+                "version": r["version"],
+                "status": r["status"],
+                "ip": r["ip_address"],
+                "user_agent": r["user_agent"],
+                "operator_uid": r["operator_uid"],
+                "operator_name": r["operator_name"],
+                "online": bool((r["last_hb_at"] or 0) >= hb_cutoff),
+            }
+            for r in rows
+        ]
+    return {"ok": True, "token_id": token_id, "items": items, "site": site}
+
+
+@app.get("/api/admin/site-overview", tags=["admin"])
+def api_admin_site_overview(user: Dict[str, Any] = Depends(require_current_user)):
+    if user.get("role") != "admin":
+        raise HTTPException(403, "admin_only")
+    with get_conn() as c:
+        site = get_current_site(c)
+        hb_cutoff = now_ms() - 15 * 60 * 1000
+        token_stats = c.execute(
+            "SELECT status, COUNT(*) AS n FROM collector_tokens WHERE site_id=? GROUP BY status",
+            (site["site_id"],),
+        ).fetchall()
+        machine_stats = c.execute(
+            "SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN last_hb_at >= ? THEN 1 ELSE 0 END), 0) AS online_n, COALESCE(SUM(today_records_count),0) AS today_n FROM machines WHERE site_id=?",
+            (hb_cutoff, site["site_id"]),
+        ).fetchone()
+        per_op = c.execute(
+            "SELECT o.operator_uid, o.operator_name, "
+            "  COALESCE(COUNT(DISTINCT t.id),0) AS tokens, "
+            "  COALESCE(SUM(CASE WHEN m.last_hb_at >= ? THEN 1 ELSE 0 END), 0) AS online_machines, "
+            "  COALESCE(SUM(m.today_records_count), 0) AS today_n "
+            "FROM operators o "
+            "LEFT JOIN collector_tokens t ON t.operator_uid=o.operator_uid AND t.site_id=? "
+            "LEFT JOIN machines m ON m.collector_id=t.id AND m.site_id=? "
+            "GROUP BY o.operator_uid, o.operator_name ORDER BY today_n DESC",
+            (hb_cutoff, site["site_id"], site["site_id"]),
+        ).fetchall()
+    return {
+        "ok": True,
+        "site": site,
+        "collector_tokens": {
+            "total": sum(int(r["n"] or 0) for r in token_stats),
+            "active": sum(int(r["n"] or 0) for r in token_stats if (r["status"] or "active") == "active"),
+            "revoked": sum(int(r["n"] or 0) for r in token_stats if (r["status"] or "active") == "revoked"),
+        },
+        "machines": {
+            "total": int(machine_stats["n"] or 0),
+            "online": int(machine_stats["online_n"] or 0),
+            "offline": int((machine_stats["n"] or 0) - (machine_stats["online_n"] or 0)),
+            "today_records": int(machine_stats["today_n"] or 0),
+        },
+        "per_operator": [
+            {
+                "operator_uid": r["operator_uid"],
+                "operator_name": r["operator_name"],
+                "tokens": int(r["tokens"] or 0),
+                "online_machines": int(r["online_machines"] or 0),
+                "today_records": int(r["today_n"] or 0),
+            }
+            for r in per_op
+        ],
+    }
+
+
 @app.patch("/api/user/me", tags=["user"])
-def api_user_update_me(body: UpdateMeRequest, request: Request, user: Dict[str, Any] = Depends(require_auth)):
+def api_user_update_me(body: UpdateMeRequest, request: Request, user: Dict[str, Any] = Depends(require_current_user)):
     ip, ua = _client_meta(request)
     fields, params = [], []
     if body.display_name is not None:
@@ -1298,7 +1874,7 @@ def api_user_update_me(body: UpdateMeRequest, request: Request, user: Dict[str, 
 
 
 @app.post("/api/user/me/change-password", tags=["user"])
-def api_user_change_password(body: ChangePasswordRequest, request: Request, user: Dict[str, Any] = Depends(require_auth)):
+def api_user_change_password(body: ChangePasswordRequest, request: Request, user: Dict[str, Any] = Depends(require_current_user)):
     ip, ua = _client_meta(request)
     new_pw = (body.new_password or "").strip()
     if len(new_pw) < 8:
@@ -1345,7 +1921,7 @@ class UpdateAccountRequest(BaseModel):
 
 
 @app.patch("/api/accounts/{account_id}", tags=["accounts"])
-def api_patch_account(account_id: str, body: UpdateAccountRequest, request: Request, user: Dict[str, Any] = Depends(require_auth)):
+def api_patch_account(account_id: str, body: UpdateAccountRequest, request: Request, user: Dict[str, Any] = Depends(require_current_user)):
     ip, ua = _client_meta(request)
     fields, params = [], []
     if body.account_name is not None:
@@ -1641,14 +2217,147 @@ def api_admin_operators(user: Dict[str, Any] = Depends(require_role("admin"))):
     return {"items": rows}
 
 
+class AdminCreateCollectorTokenRequest(BaseModel):
+    operator_uid: str = Field(..., min_length=1, max_length=64)
+    label: Optional[str] = Field(None, max_length=64)
+    expires_days: Optional[int] = Field(None, ge=1, le=365 * 10)
+
+
+@app.post("/api/admin/collector-tokens", tags=["admin"])
+def api_admin_create_collector_token(body: AdminCreateCollectorTokenRequest, request: Request, user: Dict[str, Any] = Depends(require_role("admin"))):
+    target_uid = (body.operator_uid or "").strip()
+    if not target_uid:
+        raise HTTPException(400, detail="operator_uid_required")
+    ip, ua = _client_meta(request)
+    with get_conn() as c:
+        site = get_current_site(c)
+        op_row = c.execute(
+            "SELECT operator_uid, operator_name, role FROM operators WHERE operator_uid=? AND status='active'",
+            (target_uid,),
+        ).fetchone()
+        if not op_row:
+            raise HTTPException(404, detail="operator_not_found")
+        token_id = "col_" + secrets.token_hex(8)
+        plain = gen_collector_plaintext(site, token_id)
+        expires_at = None
+        if body.expires_days and body.expires_days > 0:
+            expires_at = (_dt.datetime.utcnow() + _dt.timedelta(days=body.expires_days)).isoformat(timespec="seconds")
+        c.execute(
+            "INSERT INTO collector_tokens(id,site_id,operator_uid,token_hash,label,expires_at,created_at,status) VALUES (?,?,?,?,?,?,datetime('now'),'active')",
+            (token_id, site["site_id"], target_uid, _hash_token(plain), (body.label or "").strip()[:64] or None, expires_at),
+        )
+        write_audit(c, user["id"], "admin_create_collector_token", True,
+                    f"token_id={token_id} target_operator={target_uid} label={body.label}", ip, ua)
+    return {
+        "ok": True,
+        "id": token_id,
+        "token": plain,
+        "note": "⚠️ 此明文 token 仅显示一次，丢失不可找回，请妥善保存；请将 Token 下发给对应运营人（勿转发无关人员）",
+        "operator_uid": target_uid,
+        "operator_name": op_row["operator_name"],
+        "site": {
+            "site_id": site["site_id"],
+            "site_name": site["site_name"],
+            "handshake_code": site["handshake_code"],
+            "site_prefix": (site["site_id"] or "").lower()[:6],
+        },
+        "collector_prefix": (token_id or "").lower()[:8],
+        "label": body.label,
+        "expires_at": expires_at,
+        "usage": "请让对应运营人在插件「采集器 Token」字段或 Python 脚本 --operator-token / YAML operator_token 粘贴此 Token；粘贴后会自动识别站点并核对握手码，所有通过此 Token 上报的记录会自动归属到「" + (op_row["operator_name"] or target_uid) + "」",
+    }
+
+
+class PatchSystemFlagRequest(BaseModel):
+    key: str
+    value: Any
+
+
+@app.get("/api/admin/system-flags", tags=["admin"])
+def api_admin_list_system_flags(user: Dict[str, Any] = Depends(require_role("admin"))):
+    with get_conn() as c:
+        rows = [dict(r) for r in c.execute("SELECT key, value, updated_at FROM system_flags ORDER BY key")]
+    defaults = {"mock_enabled": "true"}
+    out = {r["key"]: dict(value=r["value"], updated_at=r.get("updated_at")) for r in rows}
+    for k, v in defaults.items():
+        if k not in out:
+            out[k] = dict(value=v, updated_at=None)
+    return {"items": rows, "flags": out}
+
+
+@app.patch("/api/admin/system-flags", tags=["admin"])
+def api_admin_patch_system_flags(body: List[PatchSystemFlagRequest], request: Request, user: Dict[str, Any] = Depends(require_role("admin"))):
+    ip, ua = _client_meta(request)
+    ALLOWED = {"mock_enabled"}
+    with get_conn() as c:
+        for item in body:
+            if item.key not in ALLOWED:
+                raise HTTPException(400, f"forbidden_flag: {item.key}")
+            if item.key == "mock_enabled":
+                item.value = "true" if str(item.value).lower() in {"1", "true", "yes", "on"} else "false"
+            set_system_flag(c, item.key, item.value)
+        write_audit(c, user["id"], "admin_patch_system_flags", True, f"keys={','.join(b.key for b in body)}", ip, ua)
+    return {"ok": True}
+
+
 # ============================================================
 # Dashboard aggregation（对齐 api.js fetchSummary 期望字段）
 # ============================================================
 
 def build_dashboard(days: int = 30, operator_uid: Optional[str] = None, role: Optional[str] = None) -> Dict[str, Any]:
     with get_conn() as c:
+        mock_en = is_mock_enabled(c)
         all_ops = [dict(r) for r in c.execute("SELECT * FROM operators WHERE status='active'")]
         by_uid = {o["operator_uid"]: o for o in all_ops}
+        current_user = dict(
+            uid=operator_uid or "admin_001",
+            name=(by_uid.get(operator_uid or "admin_001") or by_uid.get("admin_001") or (all_ops[0] if all_ops else {"operator_name": "admin"})).get("operator_name"),
+            role=(by_uid.get(operator_uid or "admin_001") or by_uid.get("admin_001") or (all_ops[0] if all_ops else {"role": "admin"})).get("role", "operator"),
+        )
+        if not mock_en:
+            return dict(
+                current_user=current_user,
+                operators=all_ops,
+                operator_stats=[
+                    dict(
+                        operator_uid=o["operator_uid"], operator_name=o["operator_name"], role=o["role"], avatar_color=o.get("avatar_color"),
+                        accounts_count=0, communities_count=0,
+                        total_followers=0, total_members=0, total_views_7d=0,
+                        abnormal_count=0, bomb_rate=0.0, total_posts_30d=0,
+                        last_report_at=None, machines=[], records_count=0,
+                    ) for o in all_ops
+                ],
+                total_followers=0,
+                total_members=0,
+                total_views_7d=0,
+                platform_count=0,
+                account_count=0,
+                community_count=0,
+                abnormal_count=0,
+                latest_records=[],
+                platform_traffic=[],
+                trend=[
+                    {"date": f"{(_dt.date.today() - _dt.timedelta(days=days-1-i)).month:02d}/{(_dt.date.today() - _dt.timedelta(days=days-1-i)).day:02d}"}
+                    for i in range(days)
+                ],
+                platforms=[platform_meta(p["key"]) for p in PLATFORMS],
+                categories=[
+                    dict(key="all", name="全部"),
+                    dict(key="金融", name="金融社区"),
+                    dict(key="社媒", name="国内社媒"),
+                    dict(key="海外", name="海外平台"),
+                    dict(key="社区", name="公开社区"),
+                ],
+                entity_types=[
+                    dict(key="all", name="全部类型"),
+                    dict(key="ACCOUNT", name="仅账号"),
+                    dict(key="COMMUNITY", name="仅社区"),
+                ],
+                collector_machines=[],
+                viral_alerts=[],
+                ai_diagnosis=[],
+                mock_enabled=False,
+            )
         op_from_uid = by_uid.get(operator_uid or "")
         if role == "admin" or (op_from_uid and op_from_uid["role"] == "admin"):
             operator_uid_filter = None
@@ -1726,7 +2435,7 @@ def build_dashboard(days: int = 30, operator_uid: Optional[str] = None, role: Op
                 daily_trend=[],
             )
             _cur_val = (record["followers"] if et == "ACCOUNT" else record["members"]) or 0
-            if _cur_val > 0:
+            if _cur_val > 0 and mock_en:
                 _base = max(1, int(_cur_val * 0.72))
                 _seed = (hash(record["account"] or record["id"] or f"{pk}-{i}") % 1000) / 1000.0
                 _rec_start = _dt.date.today() - _dt.timedelta(days=29)
@@ -1838,7 +2547,7 @@ def build_dashboard(days: int = 30, operator_uid: Optional[str] = None, role: Op
                 if k != "date":
                     plat_metrics[k] = max(plat_metrics.get(k, 0), v)
             trend.append(entry)
-        if _snap_count == 0:
+        if _snap_count == 0 and mock_en:
             _finals: Dict[str, int] = {}
             for r in latest_records:
                 _pname = r["platform"]
@@ -1897,6 +2606,7 @@ def build_dashboard(days: int = 30, operator_uid: Optional[str] = None, role: Op
         collector_machines=machines,
         viral_alerts=[],
         ai_diagnosis=[],
+        mock_enabled=mock_en,
     )
 
 

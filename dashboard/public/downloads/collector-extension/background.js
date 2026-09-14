@@ -19,6 +19,7 @@ const DEFAULT_CONFIG = {
   server_url: 'http://localhost:8000',
   operator_uid: 'op_001',
   operator_name: '李运营',
+  operator_token: '',
   operators: [
     { operator_uid: 'op_001', operator_name: '李运营', role: 'operator' },
     { operator_uid: 'op_002', operator_name: '王运营', role: 'operator' },
@@ -106,6 +107,7 @@ async function sendHeartbeat() {
       machine_name: cfg.machine_name,
       operator_uid: cfg.operator_uid,
       operator_name: cfg.operator_name,
+      operator_token: cfg.operator_token || undefined,
       version: COLLECT_VERSION,
       source: 'chrome_extension',
       pending_count: QUEUE.length,
@@ -143,6 +145,7 @@ async function flushQueue(opts = {}) {
       machine_name: cfg.machine_name,
       operator_uid: cfg.operator_uid,
       operator_name: cfg.operator_name,
+      operator_token: cfg.operator_token || undefined,
       version: COLLECT_VERSION,
       source: 'chrome_extension',
       webhook_url: cfg.webhook_url || '',

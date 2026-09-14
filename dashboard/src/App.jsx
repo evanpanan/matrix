@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime';
 import 'dayjs/locale/zh-cn';
+import JSZip from 'jszip';
 
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -12,18 +13,21 @@ import {
 
 import {
   Users, Eye, LayoutGrid, AlertTriangle, Filter, Download, RefreshCw,
-  TrendingUp, TrendingDown, ChevronDown, ChevronLeft, ExternalLink, Activity, Search,
-  BarChart3, Shield, UserCog, MessageSquare, Users2, MonitorDot, Globe2,
+  TrendingUp, TrendingDown, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Activity, Search,
+  BarChart3, Shield, ShieldOff, UserCog, MessageSquare, Users2, MonitorDot, Globe2,
   Server, Flame, Clock, X, Layers, Heart, MessageCircle, Repeat2, ArrowUpRight, Building2,
   Sparkles, Copy, Cpu, AlertOctagon, BellRing, User, LogOut, KeyRound,
   Puzzle, Code2, FileJson, FileCode, FileCode2, Package, BookOpen, Github, CheckCircle2, ArrowLeft, Settings, Check, Terminal, FolderOpen, Play,
-  Camera, XCircle, Pencil, Save,
+  Camera, XCircle, Pencil, Save, Theater, Trash2, PlusCircle,
 } from 'lucide-react';
 
 import {
   fetchSummary, fetchWhoami, exportCSV, exportCSVFromData, PLATFORM_META, OPERATORS, PLATFORM_LOGOS, setJwtToken, clearSession, sanitizeUrl,
   initAuth, loginWithPassword, registerWithInvite, logout, ssoPasteToken, fetchSsoConfig, adminApi, subscribeAuth, getAuthSnapshot,
   fetchMe, updateMe, changePassword, updateRecord,
+  listCollectorTokens, listOperators, createCollectorToken, revokeCollectorToken, adminListSystemFlags, adminPatchSystemFlags,
+  listCollectorMachines, adminSiteOverview,
+  getLocalMockOverride, setLocalMockOverride,
 } from './lib/api.js';
 import AccountDetailDrawer from './AccountDetailDrawer.jsx';
 import PlatformDetailModal from './PlatformDetailModal.jsx';
@@ -1277,6 +1281,18 @@ function ProfileView({ onBack, currentUser, showToast }) {
   const [changing, setChanging] = useState(false);
   const [history, setHistory] = useState([]);
 
+  const [tokens, setTokens] = useState([]);
+  const [showGenToken, setShowGenToken] = useState(false);
+  const [genLabel, setGenLabel] = useState('');
+  const [genDays, setGenDays] = useState('365');
+  const [genOperatorUid, setGenOperatorUid] = useState('');
+  const [genBusy, setGenBusy] = useState(false);
+  const [revealToken, setRevealToken] = useState(null);
+  const [revokeBusyId, setRevokeBusyId] = useState(null);
+  const [expandedTokenIds, setExpandedTokenIds] = useState(() => new Set());
+  const [siteOverview, setSiteOverview] = useState(null);
+  const [operators, setOperators] = useState([]);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -1288,13 +1304,38 @@ function ProfileView({ onBack, currentUser, showToast }) {
         setAvatarGradient(r.avatar_gradient || AVATAR_POOL[0]);
         setAvatarDataUrl(r.avatar_data_url || '');
       }
-      const hr = await adminApi('/admin/audit-logs?limit=12&role=me');
-      if (hr && Array.isArray(hr)) setHistory(hr);
-      else if (hr?.rows && Array.isArray(hr.rows)) setHistory(hr.rows);
+      try {
+        const hr = await adminApi('/admin/audit-logs?limit=12&role=me');
+        if (hr && Array.isArray(hr)) setHistory(hr);
+        else if (hr?.rows && Array.isArray(hr.rows)) setHistory(hr.rows);
+      } catch {}
+      const tr = await listCollectorTokens();
+      if (tr && Array.isArray(tr)) setTokens(tr);
+      else if (tr?.tokens && Array.isArray(tr.tokens)) setTokens(tr.tokens);
+      else if (tr?.items && Array.isArray(tr.items)) setTokens(tr.items);
+      else setTokens([]);
+      if (currentUser?.role === 'admin') {
+        try {
+          const so = await adminSiteOverview();
+          if (so && so.site) setSiteOverview(so);
+        } catch {}
+        try {
+          const op = await listOperators();
+          setOperators(op?.items || []);
+        } catch {}
+      }
     } catch {}
     setLoading(false);
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [currentUser?.role]);
+
+  const toggleExpand = (id) => {
+    setExpandedTokenIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   const save = async () => {
     setSaving(true);
@@ -1338,6 +1379,59 @@ function ProfileView({ onBack, currentUser, showToast }) {
     if (/[^A-Za-z0-9]/.test(s)) score++;
     return { score, level: score <= 2 ? '弱' : score <= 4 ? '中' : '强', color: score <= 2 ? '#ef4444' : score <= 4 ? '#f59e0b' : '#10b981' };
   }, [newPw]);
+
+  const tokenStatus = (t) => {
+    if (t?.revoked_at) return { key: 'revoked', label: '已吊销', color: 'bg-slate-200 text-slate-600', dot: 'bg-slate-400' };
+    if (t?.expires_at && new Date(t.expires_at) < new Date()) return { key: 'expired', label: '已过期', color: 'bg-rose-100 text-rose-700', dot: 'bg-rose-500' };
+    return { key: 'active', label: '使用中', color: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500' };
+  };
+
+  const onCreateToken = async () => {
+    setGenBusy(true);
+    try {
+      const label = (genLabel || '').trim() || '未命名采集器';
+      const days = Math.max(1, Math.floor(Number(genDays) || 365));
+      const isAdmin = currentUser?.role === 'admin';
+      const targetOp = isAdmin ? (genOperatorUid || currentUser?.operator_uid || '') : '';
+      if (isAdmin && !targetOp) throw new Error('请选择要分配给的运营人');
+      const r = await createCollectorToken(label, days, isAdmin ? targetOp : undefined);
+      if (!r || r.ok === false || !r.token) throw new Error(r?.detail || r?.message || '生成失败');
+      setShowGenToken(false);
+      setGenLabel(''); setGenDays('365'); setGenOperatorUid('');
+      setRevealToken({
+        token: r.token, label: r.label || label, id: r.id,
+        site: r.site || null,
+        collector_prefix: r.collector_prefix || null,
+        operator_uid: r.operator_uid || null,
+        operator_name: r.operator_name || null,
+        usage: r.usage || null,
+      });
+      showToast(r.operator_name ? `已为「${r.operator_name}」生成采集器 Token` : '采集器 Token 生成成功', 'success');
+      load();
+    } catch (e) { showToast(e.message || '生成失败，请稍后重试', 'error'); }
+    finally { setGenBusy(false); }
+  };
+
+  const onRevokeToken = async (id) => {
+    if (!id) return;
+    if (!window.confirm('确认要吊销这个采集器 Token 吗？吊销后正在使用它的插件/脚本将立即被拒绝上报。')) return;
+    setRevokeBusyId(id);
+    try {
+      const r = await revokeCollectorToken(id);
+      if (r && r.ok === false) throw new Error(r.detail || r.message || '吊销失败');
+      showToast('Token 已吊销', 'success');
+      load();
+    } catch (e) { showToast(e.message || '吊销失败', 'error'); }
+    finally { setRevokeBusyId(null); }
+  };
+
+  const copyReveal = async () => {
+    if (!revealToken?.token) return;
+    try {
+      await navigator.clipboard.writeText(revealToken.token);
+      showToast('Token 已复制到剪贴板', 'success');
+    } catch { showToast('复制失败，请手动框选复制', 'warn'); }
+  };
 
   const pickAvatarFile = async (file) => {
     if (!file) return;
@@ -1542,9 +1636,439 @@ function ProfileView({ onBack, currentUser, showToast }) {
                 </div>
               )}
             </div>
+
+            <div id="collector-tokens-section" data-collector-section="1" className="rounded-3xl border border-black/[0.05] bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <div>
+                  <div className="text-[11px] font-bold text-ink-500 uppercase tracking-wider flex items-center gap-1.5"><KeyRound size={12} className="text-indigo-600" />采集器授权 Token</div>
+                  <div className="text-[11px] text-ink-400 mt-0.5">
+                    {currentUser?.role === 'admin'
+                      ? '每个 Chrome 插件 / Python 脚本对应一个独立 Token，可分配给不同运营人；吊销后该设备立即被拒绝上报'
+                      : '每个 Chrome 插件 / Python 脚本对应一个独立 Token；如需新增请联系管理员为您分配，吊销后该设备立即被拒绝上报'}
+                  </div>
+                </div>
+                {currentUser?.role === 'admin' ? (
+                  <button
+                    onClick={() => { setGenLabel(''); setGenDays('365'); setGenOperatorUid(currentUser?.operator_uid || ''); setShowGenToken(true); }}
+                    className="h-9 px-3.5 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 hover:brightness-110 text-white text-[12.5px] font-semibold inline-flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0"
+                  ><PlusCircle size={13} />生成新 Token</button>
+                ) : (
+                  <div title="仅管理员可创建和分配采集器 Token"
+                    className="h-9 px-3.5 rounded-xl bg-slate-100 text-slate-400 border border-black/[0.04] text-[12px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-not-allowed">
+                    <ShieldOff size={13} /> 请联系管理员分配
+                  </div>
+                )}
+              </div>
+
+              {!currentUser && (
+                <div className="mb-3 rounded-2xl border border-amber-200/70 bg-gradient-to-r from-amber-50 via-yellow-50/50 to-orange-50/40 p-3 flex items-start gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+                    <AlertTriangle size={13} className="text-white" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[12.5px] font-bold text-amber-900 mb-0.5">请先登录后生成采集器 Token</div>
+                    <div className="text-[11px] text-amber-700/90 leading-snug">默认管理员账号：<span className="font-mono bg-amber-100/80 px-1.5 py-0.5 rounded border border-amber-200/60">admin</span> / 密码：<span className="font-mono bg-amber-100/80 px-1.5 py-0.5 rounded border border-amber-200/60">admin123</span>。登录后即可在此页面生成采集器授权 Token，并查看握手码、在线终端数、今日采集汇总等信息。Chrome 插件下载：顶部「下载」按钮 → 采集插件 (ZIP)。</div>
+                  </div>
+                </div>
+              )}
+
+              {currentUser?.role === 'admin' && siteOverview?.site && (
+                <div className="mb-3 rounded-2xl border border-indigo-200/60 bg-gradient-to-r from-indigo-50 via-violet-50/50 to-white p-3 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center ring-2 ring-white shadow-sm shrink-0">
+                      <Globe2 size={13} className="text-white" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[12.5px] font-bold text-ink-900 truncate">本站：{siteOverview.site.site_name || '未命名站点'}</div>
+                      <div className="text-[10.5px] text-ink-500 mt-0.5 font-mono truncate">
+                        站点 ID: {String(siteOverview.site.site_id || '').slice(0, 12)}…
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <div className="px-2.5 py-1 rounded-xl bg-white border border-indigo-200/60 shadow-sm">
+                      <div className="text-[9px] font-bold uppercase tracking-wider text-indigo-500 leading-none mb-0.5">🤝 握手码</div>
+                      <div className="font-mono font-bold text-[13px] text-ink-900 tracking-wide">{siteOverview.site.handshake_code || '—'}</div>
+                    </div>
+                    <div className="px-2.5 py-1 rounded-xl bg-white border border-black/[0.05] shadow-sm">
+                      <div className="text-[9px] font-bold uppercase tracking-wider text-ink-400 leading-none mb-0.5">💻 在线终端</div>
+                      <div className="font-bold text-[13px] text-ink-900 tabular-nums">{Number(siteOverview.machines_online || 0)}<span className="text-[10px] text-ink-400 font-semibold ml-0.5">/ {Number(siteOverview.machines_total || 0)}</span></div>
+                    </div>
+                    <div className="px-2.5 py-1 rounded-xl bg-emerald-50 border border-emerald-200/60 shadow-sm">
+                      <div className="text-[9px] font-bold uppercase tracking-wider text-emerald-600 leading-none mb-0.5">📊 今日采集</div>
+                      <div className="font-bold text-[13px] text-ink-900 tabular-nums">{Number(siteOverview.today_records || 0).toLocaleString()}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {loading && tokens.length === 0 && (
+                <div className="py-10 text-center text-ink-400 text-sm rounded-2xl border border-dashed border-black/[0.06] bg-white/60">
+                  <RefreshCw size={18} className="inline-block animate-spin mb-1" /><br />正在加载 Token 列表…
+                </div>
+              )}
+              {!loading && tokens.length === 0 && (
+                <div className="py-10 text-center rounded-2xl border border-dashed border-indigo-200/70 bg-gradient-to-br from-indigo-50/60 via-white to-violet-50/40">
+                  <div className="w-14 h-14 rounded-3xl mx-auto flex items-center justify-center bg-gradient-to-br from-indigo-500 to-violet-600 shadow-[0_10px_24px_rgba(99,102,241,0.28)] ring-4 ring-white mb-3">
+                    <KeyRound size={24} className="text-white" />
+                  </div>
+                  <div className="text-[14px] font-bold text-ink-900 mb-1">暂无采集器 Token</div>
+                  <div className="text-[11.5px] text-ink-500 mb-3">
+                    {currentUser?.role === 'admin'
+                      ? '为您自己或其他运营人生成 Token 后，下发给对应人员粘贴到 Chrome 插件或 Python 脚本，即可与身份绑定，其他人无法冒用'
+                      : '采集器 Token 需由管理员统一分配，请联系管理员为您开通，开通后会出现在此处，您无需手动创建'}
+                  </div>
+                  {currentUser?.role === 'admin' ? (
+                    <button
+                      onClick={() => { setGenLabel(''); setGenDays('365'); setGenOperatorUid(currentUser?.operator_uid || ''); setShowGenToken(true); }}
+                      className="h-9 px-4 rounded-xl bg-white text-indigo-700 text-[12.5px] font-semibold border border-indigo-200/70 hover:bg-indigo-50 shadow-sm inline-flex items-center gap-1.5"
+                    ><PlusCircle size={13} />生成第一个 Token</button>
+                  ) : (
+                    <div className="inline-flex items-center gap-2 h-9 px-4 rounded-xl bg-white text-ink-400 text-[12px] font-semibold border border-black/[0.06] shadow-sm">
+                      <ShieldOff size={13} />
+                      请联系管理员分配采集器 Token
+                    </div>
+                  )}
+                </div>
+              )}
+              {tokens.length > 0 && (
+                <div className="divide-y divide-black/[0.04] -mx-2">
+                  {tokens.map((t, i) => {
+                    const st = tokenStatus(t);
+                    const lastUsed = t.last_used_at || t.last_heartbeat_at;
+                    const isExpanded = expandedTokenIds.has(t.id);
+                    const hasMachines = Array.isArray(t.machines) && t.machines.length > 0;
+                    return (
+                      <div key={t.id || i} className="px-2">
+                        <div className="py-3 flex items-center justify-between gap-3 min-w-0">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className={`w-9 h-9 rounded-xl shrink-0 flex items-center justify-center shadow-sm ring-1 ring-black/[0.04] bg-gradient-to-br ${st.key === 'active' ? 'from-indigo-400 to-violet-500' : st.key === 'expired' ? 'from-rose-400 to-red-500' : 'from-slate-400 to-slate-600'}`}>
+                              <MonitorDot size={15} className="text-white" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-semibold text-ink-800 text-[13px] truncate">{t.label || '未命名采集器'}</span>
+                                <span className={`text-[9.5px] font-bold px-1.5 py-[2px] rounded-md inline-flex items-center gap-1 ${st.color}`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />{st.label}
+                                </span>
+                                {t.operator_uid && (
+                                  <span className="text-[9.5px] font-bold px-1.5 py-[2px] rounded-md bg-violet-50 text-violet-700 inline-flex items-center gap-1">
+                                    👤 {String(t.operator_uid || '').slice(0, 6)}…
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10.5px] text-ink-400 mt-0.5 truncate font-mono flex items-center gap-2 flex-wrap">
+                                <span>ID: {String(t.id || '').slice(0, 12)}…</span>
+                                {t.created_at && <span>创建于 {dayjs(t.created_at).format('YYYY/MM/DD')}</span>}
+                                {t.expires_at && <span>有效期至 {dayjs(t.expires_at).format('YYYY/MM/DD')}</span>}
+                                {lastUsed && <span>最后心跳 {dayjs(lastUsed).fromNow()}</span>}
+                              </div>
+                              <div className="mt-1 text-[10.5px] text-ink-500 flex items-center gap-2 flex-wrap">
+                                <span className="px-1.5 py-0.5 rounded-md bg-indigo-50 text-indigo-700 font-bold inline-flex items-center gap-1">
+                                  💻 {Number(t.online_machines || 0)}<span className="text-indigo-500/80 font-semibold">台在线</span>
+                                  <span className="text-indigo-400 font-semibold ml-0.5">/ {Number(t.total_machines || (hasMachines ? t.machines.length : 0))}</span>
+                                </span>
+                                <span className="px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-bold tabular-nums inline-flex items-center gap-1">
+                                  📊 {Number(t.today_records || 0).toLocaleString()}<span className="text-emerald-600/80 font-semibold">条/今日</span>
+                                </span>
+                                {t.handshake_code && (
+                                  <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono font-bold inline-flex items-center gap-1">
+                                    🤝 {t.handshake_code}
+                                  </span>
+                                )}
+                                {hasMachines ? (
+                                  <button
+                                    onClick={() => toggleExpand(t.id)}
+                                    className="px-1.5 py-0.5 rounded-md bg-white border border-black/[0.05] text-ink-600 hover:bg-ink-50 hover:text-ink-900 font-semibold inline-flex items-center gap-1 transition"
+                                  >
+                                    {isExpanded ? <ChevronDown size={10} /> : <ChevronLeft size={10} />}
+                                    {isExpanded ? '收起终端' : `展开 ${t.machines.length} 台终端`}
+                                  </button>
+                                ) : null}
+                              </div>
+                            </div>
+                          </div>
+                          {st.key === 'active' ? (
+                            <button
+                              onClick={() => onRevokeToken(t.id)}
+                              disabled={revokeBusyId === t.id}
+                              className="h-8 px-2.5 rounded-lg text-[11.5px] font-semibold text-rose-700 bg-rose-50/70 hover:bg-rose-100 border border-rose-200/60 disabled:opacity-60 transition inline-flex items-center gap-1 whitespace-nowrap shrink-0"
+                            >
+                              {revokeBusyId === t.id ? <RefreshCw size={11} className="animate-spin" /> : <Trash2 size={12} />}
+                              {revokeBusyId === t.id ? '吊销中…' : '吊销'}
+                            </button>
+                          ) : (
+                            <span className={`text-[10px] font-bold px-2 py-1 rounded-md ${st.color} whitespace-nowrap shrink-0`}>{st.label}</span>
+                          )}
+                        </div>
+                        {isExpanded && hasMachines && (
+                          <div className="pb-3 pl-12 -mt-1">
+                            <div className="rounded-2xl border border-black/[0.05] bg-ink-50/40 overflow-hidden">
+                              <div className="px-3 py-2 border-b border-black/[0.04] bg-white/60 flex items-center justify-between">
+                                <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500 flex items-center gap-1">
+                                  <Server size={10} className="text-indigo-500" />终端明细
+                                </div>
+                                <div className="text-[10px] text-ink-400 font-mono">
+                                  Collector: {String(t.id || '').slice(0, 10)}
+                                </div>
+                              </div>
+                              <div className="divide-y divide-black/[0.04]">
+                                {t.machines.map((m, mi) => {
+                                  const hb = m.last_heartbeat_at || m.last_collect_at || null;
+                                  const online = hb && (Date.now() - new Date(hb).getTime()) < 15 * 60 * 1000;
+                                  return (
+                                    <div key={m.machine_id || mi} className="px-3 py-2 flex items-center justify-between gap-3 min-w-0">
+                                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${online ? 'bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]' : 'bg-slate-300'}`} />
+                                        <div className="min-w-0 flex-1">
+                                          <div className="text-[11.5px] font-mono font-bold text-ink-800 truncate">{m.machine_id || '未知机器'}</div>
+                                          <div className="text-[10px] text-ink-400 mt-0.5 flex items-center gap-2 flex-wrap font-mono">
+                                            {m.ip && <span>🌐 {m.ip}</span>}
+                                            {m.platform && <span className="uppercase">{m.platform}</span>}
+                                            {m.user_agent && <span className="truncate">{String(m.user_agent).slice(0, 40)}</span>}
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                                        <div className="px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold tabular-nums">
+                                          +{Number(m.today_records_count || m.today_records || 0).toLocaleString()}
+                                        </div>
+                                        <div className="text-[10px] text-ink-500 tabular-nums font-mono whitespace-nowrap">
+                                          {hb ? dayjs(hb).fromNow() : '无心跳'}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </main>
+
+      <div className="fixed inset-0 z-40 pointer-events-none flex items-center justify-center p-4">
+        <AnimatePresence>
+          {showGenToken && (
+            <motion.div
+              key="gentok-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/40 backdrop-blur-[2px] pointer-events-auto"
+              onClick={() => !genBusy && setShowGenToken(false)}
+            />
+          )}
+          {showGenToken && (
+            <motion.div
+              key="gentok-panel"
+              initial={{ opacity: 0, y: 8, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.97 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 30 }}
+              className="relative pointer-events-auto w-full max-w-[420px] bg-white rounded-3xl border border-black/[0.06] shadow-[0_30px_80px_rgba(20,20,60,0.25)] overflow-hidden"
+            >
+              <div className="px-5 py-4 border-b border-black/[0.04] bg-gradient-to-br from-indigo-50 via-violet-50/60 to-white">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-sm ring-4 ring-white shrink-0">
+                      <KeyRound size={18} className="text-white" />
+                    </div>
+                    <div>
+                      <div className="text-[15px] font-bold text-ink-900">生成新的采集器 Token</div>
+                      <div className="text-[11px] text-ink-500 mt-0.5">生成后明文仅显示一次，丢失无法找回</div>
+                    </div>
+                  </div>
+                  <button disabled={genBusy} onClick={() => setShowGenToken(false)} className="h-8 w-8 rounded-xl text-ink-400 hover:text-ink-700 hover:bg-black/[0.03] disabled:opacity-60 flex items-center justify-center shrink-0"><X size={15} /></button>
+                </div>
+              </div>
+              <div className="p-5 space-y-3.5">
+                {currentUser?.role === 'admin' && (
+                  <div>
+                    <label className="block text-[11.5px] text-ink-500 font-semibold mb-1 flex items-center gap-1.5">
+                      <Users size={11} /> 分配给哪个运营人（必须选择）
+                    </label>
+                    <select value={genOperatorUid || (currentUser?.operator_uid || '')}
+                      onChange={e => setGenOperatorUid(e.target.value)}
+                      className="w-full h-10 rounded-xl border border-black/[0.08] px-3 text-[13.5px] bg-white focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100">
+                      <option value="">— 请选择要分配的运营人 —</option>
+                      {(operators || []).map(o => (
+                        <option key={o.operator_uid} value={o.operator_uid}>
+                          {o.operator_name}{o.operator_uid === currentUser?.operator_uid ? '（我自己）' : ''}
+                          {o.role === 'admin' ? ' · 管理员' : ''}
+                          {`  ·  ${o.operator_uid}`}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="mt-1 text-[10.5px] text-ink-400 leading-snug">
+                      生成后，该 Token 会自动出现在对应运营人的「个人资料 → 采集器 Token」列表里，他们无需手动创建
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <label className="block text-[11.5px] text-ink-500 font-semibold mb-1">备注名（比如：办公电脑 · Chrome）</label>
+                  <input value={genLabel} onChange={e => setGenLabel(e.target.value)} maxLength={40}
+                    placeholder={currentUser?.role === 'admin' ? '如：给 李运营 的办公 Chrome' : '如：我的办公电脑 Chrome'}
+                    className="w-full h-10 rounded-xl border border-black/[0.08] px-3 text-[13.5px] bg-white focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+                </div>
+                <div>
+                  <label className="block text-[11.5px] text-ink-500 font-semibold mb-1">有效期（天）</label>
+                  <div className="flex items-center gap-2">
+                    <input type="number" min={1} value={genDays} onChange={e => setGenDays(e.target.value)}
+                      className="flex-1 h-10 rounded-xl border border-black/[0.08] px-3 text-[13.5px] bg-white focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+                    <div className="flex gap-1.5 flex-wrap">
+                      {[30, 90, 180, 365].map(d => (
+                        <button key={d} onClick={() => setGenDays(String(d))}
+                          className={`h-8 px-2.5 rounded-lg text-[11px] font-bold border transition ${Number(genDays) === d ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm' : 'bg-white text-ink-600 border-black/[0.06] hover:bg-indigo-50 hover:text-indigo-700'}`}>{d} 天</button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="px-5 py-3.5 border-t border-black/[0.04] bg-ink-50/30 flex items-center justify-end gap-2">
+                <button disabled={genBusy} onClick={() => setShowGenToken(false)}
+                  className="h-9 px-3.5 rounded-xl text-[12.5px] font-semibold text-ink-700 bg-white hover:bg-ink-50 border border-black/[0.06] disabled:opacity-60">取消</button>
+                <button disabled={genBusy || !genDays || (currentUser?.role === 'admin' && !genOperatorUid)} onClick={onCreateToken}
+                  className="h-9 px-4 rounded-xl text-[12.5px] font-semibold text-white bg-gradient-to-br from-indigo-600 to-violet-600 hover:brightness-110 disabled:opacity-60 shadow-sm inline-flex items-center gap-1.5">
+                  {genBusy ? <RefreshCw size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                  {genBusy ? '生成中…' : (currentUser?.role === 'admin' ? '确认分配 Token' : '确认生成 Token')}
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      <div className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center p-4">
+        <AnimatePresence>
+          {revealToken && (
+            <motion.div
+              key="reveal-overlay"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-gradient-to-br from-amber-900/50 via-black/50 to-rose-900/40 backdrop-blur-sm pointer-events-auto"
+              onClick={() => { setRevealToken(null); }}
+            />
+          )}
+          {revealToken && (
+            <motion.div
+              key="reveal-panel"
+              initial={{ opacity: 0, y: 20, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.96 }}
+              transition={{ type: 'spring', stiffness: 380, damping: 26 }}
+              className="relative pointer-events-auto w-full max-w-[560px] bg-white rounded-[28px] border border-black/[0.06] shadow-[0_40px_120px_rgba(20,10,60,0.35)] overflow-hidden"
+            >
+              <div className="px-5 py-4 border-b border-amber-200/60 bg-gradient-to-br from-amber-50 via-orange-50/60 to-rose-50/40">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400 via-orange-500 to-rose-500 flex items-center justify-center shadow-[0_12px_28px_rgba(251,146,60,0.35)] ring-4 ring-white shrink-0">
+                    <AlertTriangle size={22} className="text-white" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[16px] font-bold text-ink-900 flex items-center gap-1.5 flex-wrap">
+                      {revealToken.operator_name
+                        ? <>「<span className="text-indigo-700">{revealToken.operator_name}</span>」的采集器 Token 已生成</>
+                        : <>您的采集器 Token 已生成</>}
+                      {revealToken.operator_uid && (
+                        <span className="text-[10px] font-mono px-1.5 py-[2px] rounded-md bg-indigo-100 text-indigo-700 ml-0.5">
+                          {revealToken.operator_uid}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11.5px] text-amber-800 mt-0.5 font-semibold leading-snug">
+                      ⚠️ 此明文仅显示一次，关闭对话框后将无法再次查看，请立即复制并妥善保存
+                      {revealToken.operator_name ? `；如为他人代生成，请直接将 Token 单独转发给「${revealToken.operator_name}」，勿转发无关人员` : ''}。
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="p-5 space-y-3">
+                {revealToken.label && (
+                  <div className="flex items-center justify-between gap-3 text-[12px]">
+                    <span className="text-ink-500 font-semibold">备注</span>
+                    <span className="font-bold text-ink-800 truncate">{revealToken.label}</span>
+                  </div>
+                )}
+                <div className="rounded-2xl border-2 border-dashed border-amber-300/70 bg-gradient-to-br from-amber-50/70 via-yellow-50/50 to-orange-50/50 p-4">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="text-[10.5px] font-bold uppercase tracking-wider text-amber-700">明文 Token（复制粘贴到插件 / 脚本）</div>
+                    <button onClick={copyReveal} className="h-7 px-2.5 rounded-lg bg-white text-amber-700 border border-amber-200 hover:bg-amber-100 text-[11px] font-bold inline-flex items-center gap-1 shadow-sm"><Copy size={11} />一键复制</button>
+                  </div>
+                  <div className="font-mono text-[15px] leading-[1.55] font-bold text-ink-900 break-all select-all tracking-tight py-1">{revealToken.token}</div>
+                  {revealToken.collector_prefix && (
+                    <div className="mt-2.5 pt-2.5 border-t border-amber-200/50 flex items-center justify-between gap-2 flex-wrap">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-amber-700/80">Token 前缀解析</div>
+                      <div className="flex items-center gap-1.5 font-mono text-[11px] font-bold flex-wrap">
+                        <span className="px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-700">mxtok</span>
+                        <span className="text-amber-500">_</span>
+                        <span className="px-1.5 py-0.5 rounded-md bg-indigo-100 text-indigo-700">site {String(revealToken.token || '').split('_')[1] || '—'}</span>
+                        <span className="text-amber-500">_</span>
+                        <span className="px-1.5 py-0.5 rounded-md bg-violet-100 text-violet-700">col {revealToken.collector_prefix}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {revealToken.site?.handshake_code && (
+                  <div className="rounded-2xl border-2 border-indigo-300/60 bg-gradient-to-br from-indigo-50 via-white to-violet-50/50 p-4">
+                    <div className="flex items-center gap-2 mb-2.5">
+                      <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center ring-2 ring-white shadow-sm shrink-0">
+                        <Globe2 size={12} className="text-white" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[11.5px] font-bold text-ink-900 truncate">{revealToken.site.site_name || '本站点'}</div>
+                        <div className="text-[10px] text-ink-500 font-mono truncate">{String(revealToken.site.site_id || '').slice(0, 14)}…</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 mb-0.5 flex items-center gap-1">
+                          🤝 双向握手码 · 必须与插件顶部一致
+                        </div>
+                        <div className="font-mono font-black text-[26px] leading-none tracking-[0.2em] text-ink-900 bg-white/70 inline-block px-3 py-2 rounded-xl border border-indigo-200/50 shadow-sm">
+                          {revealToken.site.handshake_code}
+                        </div>
+                      </div>
+                      <div className="px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200/60 text-[10.5px] leading-tight max-w-[180px]">
+                        <div className="font-bold text-emerald-800 mb-0.5">粘贴后 3 秒核对</div>
+                        <div className="text-emerald-700 font-semibold">插件横幅显示绿色 ✓ 才算匹配成功，否则按钮会被禁用</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="rounded-2xl bg-slate-50 border border-black/[0.04] p-3 text-[11.5px] text-ink-500 leading-relaxed">
+                  <div className="font-bold text-ink-700 mb-1">接下来怎么用：</div>
+                  {revealToken.usage ? (
+                    <p className="whitespace-pre-wrap leading-relaxed pl-0.5">{revealToken.usage}</p>
+                  ) : (
+                    <ol className="list-decimal list-inside space-y-0.5 pl-1">
+                      <li>打开 Matrix 采集插件 popup，粘贴到「采集器 Token」栏并保存<span className="font-semibold text-indigo-700">，核对顶部 🤝 {revealToken.site?.handshake_code || 'MX-XXXX-XXXX'} 与页面一致后再继续</span>，或在 Python 脚本启动时加 <code className="px-1 py-0.5 rounded bg-white text-indigo-700 border border-indigo-100 font-bold">--operator-token {String(revealToken.token || '').slice(0, 8)}…</code></li>
+                      <li>后续该插件 / 脚本每次上报都会与您的身份绑定，不匹配的机器、站点或账号会被服务器直接拒绝</li>
+                      <li>如 Token 泄露，请回到本页吊销它，再生成新的即可</li>
+                    </ol>
+                  )}
+                </div>
+              </div>
+              <div className="px-5 py-4 border-t border-black/[0.04] bg-ink-50/30 flex items-center justify-end">
+                <button onClick={() => setRevealToken(null)}
+                  className="h-10 px-5 rounded-xl text-[13px] font-bold text-white bg-gradient-to-br from-amber-500 via-orange-500 to-rose-500 hover:brightness-110 shadow-[0_10px_24px_rgba(251,146,60,0.3)] inline-flex items-center gap-1.5">
+                  <Check size={14} />我已保存，关闭（永久不再显示）
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
     </motion.div>
   );
 }
@@ -1819,29 +2343,59 @@ function DownloadsPage({ onClose, showToast }) {
               {dl('/downloads/README_COLLECTOR.txt', '📖 插件使用说明', '', 'secondary', BookOpen)}
               <motion.button
                 onClick={async () => {
-                  const urls = [
-                    '/downloads/collector-extension/manifest.json',
-                    '/downloads/collector-extension/content.js',
-                    '/downloads/collector-extension/background.js',
-                    '/downloads/collector-extension/popup.html',
-                    '/downloads/collector-extension/popup.js',
-                    '/downloads/collector-extension/rules.json',
-                  ];
-                  const total = urls.length;
-                  let i = 0;
-                  for (const u of urls) {
-                    i++;
+                  try {
+                    showToast('正在打包插件文件，请稍候…', 'info');
+                    const zip = new JSZip();
+                    const folder = zip.folder('collector-extension');
+                    const files = [
+                      ['/downloads/collector-extension/manifest.json', 'manifest.json'],
+                      ['/downloads/collector-extension/content.js', 'content.js'],
+                      ['/downloads/collector-extension/background.js', 'background.js'],
+                      ['/downloads/collector-extension/popup.html', 'popup.html'],
+                      ['/downloads/collector-extension/popup.js', 'popup.js'],
+                      ['/downloads/collector-extension/rules.json', 'rules.json'],
+                    ];
+                    for (const [url, name] of files) {
+                      const res = await fetch(url);
+                      if (!res.ok) throw new Error(`下载失败: ${name}`);
+                      folder.file(name, await res.blob());
+                    }
+                    const readme = `Matrix 数据采集器 · 零门槛安装指南
+========================================
+
+【一句话安装】
+1. 解压本 zip 得到 collector-extension 文件夹
+2. Chrome / Edge 地址栏输入 chrome://extensions （Edge 是 edge://extensions）
+3. 右上角打开「开发者模式」
+4. 点击「加载已解压的扩展程序」→ 选择刚解压的 collector-extension 文件夹即可
+5. 点右上角 📌 固定插件图标 → 点图标打开配置 → 填写归属运营 / 机器名 / 后端地址 → 保存
+6. 打开小红书 / X / 抖音 / 雪球等目标页面，插件自动采集并上报
+
+【常见问题】
+Q: 提示「清单文件缺失或不可读取」
+A: 第 4 步选的是 collector-extension 文件夹本身（里面直接有 manifest.json），不是它的父级文件夹
+
+Q: 采集数据没上报？
+A: 点插件 → 检查「后端 API 地址」是否正确（默认 http://localhost:8000），再点「立即同步」
+
+Q: 想更换运营名称？
+A: 插件弹窗内「归属运营」可直接修改并保存；如需绑定采集 Token，请在 Dashboard 个人中心生成
+`;
+                    folder.file('README.txt', readme);
+                    const blob = await zip.generateAsync({ type: 'blob' });
+                    const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
-                    a.href = u;
-                    a.download = u.split('/').pop() || 'file';
+                    a.href = url;
+                    a.download = 'collector-extension.zip';
                     a.rel = 'noopener';
                     document.body.appendChild(a);
                     a.click();
-                    setTimeout(() => a.remove(), 250);
-                    try { showToast(`正在下载第 ${i}/${total} 个文件…`, 'info'); } catch {}
-                    if (i < total) await new Promise(r => setTimeout(r, 500));
+                    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 500);
+                    showToast('整包下载完成 · 解压后选择 collector-extension 文件夹即可导入', 'success');
+                  } catch (e) {
+                    console.error(e);
+                    showToast('打包失败: ' + (e.message || e), 'error');
                   }
-                  try { showToast('下载完成', 'success'); } catch {}
                 }}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
@@ -1855,7 +2409,7 @@ function DownloadsPage({ onClose, showToast }) {
                 >
                   <Download size={16} />
                 </motion.span>
-                一键下载所有插件文件（6 个）
+                一键下载插件整包（ZIP）
               </motion.button>
             </div>
           </div>
@@ -2070,19 +2624,73 @@ function DownloadsPage({ onClose, showToast }) {
               {dl('/downloads/README_COLLECTOR.txt', '📖 使用说明 / FAQ', '', 'secondary', BookOpen)}
               <motion.button
                 onClick={async () => {
-                  const urls = ['/downloads/python_collector.py', '/downloads/requirements_collector.txt', '/downloads/collector_config.example.yaml'];
-                  const total = urls.length;
-                  let i = 0;
-                  for (const u of urls) {
-                    i++;
+                  try {
+                    showToast('正在打包 Python 采集工具，请稍候…', 'info');
+                    const zip = new JSZip();
+                    const folder = zip.folder('python-collector');
+                    const files = [
+                      ['/downloads/python_collector.py', 'python_collector.py'],
+                      ['/downloads/requirements_collector.txt', 'requirements_collector.txt'],
+                      ['/downloads/collector_config.example.yaml', 'collector_config.example.yaml'],
+                      ['/downloads/start_collector.bat', 'start_collector.bat'],
+                      ['/downloads/start_collector.command', 'start_collector.command'],
+                    ];
+                    for (const [url, name] of files) {
+                      const res = await fetch(url);
+                      if (!res.ok) throw new Error(`下载失败: ${name}`);
+                      const blob = await res.blob();
+                      folder.file(name, blob, { unixPermissions: name.endsWith('.command') ? 0o755 : 0o644 });
+                    }
+                    const readme = `Matrix Python 自动化采集脚本 · 零门槛使用指南
+======================================================
+
+【Windows 用户 · 一键运行】
+  双击 start_collector.bat
+  （自动创建虚拟环境、安装依赖、下载 Playwright 浏览器内核）
+
+【macOS / Linux 用户 · 一键运行】
+  右键（或 Control+点击） start_collector.command → 打开
+  （首次需要允许「未知开发者」，并自动执行上述所有步骤）
+
+【零门槛流程】
+  1. 解压本 zip 得到 python-collector 文件夹
+  2. 打开 collector_config.example.yaml，修改：
+       - urls: 目标账号 URL 列表（逗号或换行分隔）
+       - operator_uid / operator_name: 您的运营身份（在 Dashboard 个人中心查看）
+       - api_base: 后端地址（默认 http://localhost:8000）
+       - 高级：mode = adspower / hubstudio 对应指纹浏览器（需客户端已启动）
+  3. 双击对应的一键启动脚本
+  4. 在 Dashboard 右上角「节点」查看心跳和采集进度
+
+【3 种运行模式】
+  · --mode chrome    : 本机 Playwright Chromium（默认，服务器加 --headless）
+  · --mode adspower  : AdsPower 指纹浏览器，传 --user-id
+  · --mode hubstudio : Hubstudio 指纹浏览器，传 --profile-id
+
+【手动运行（推荐给熟悉命令行的同学）】
+  cd python-collector
+  python -m venv .venv
+  # Windows: .venv\\Scripts\\activate
+  # macOS:   source .venv/bin/activate
+  pip install -r requirements_collector.txt
+  playwright install chromium
+  python python_collector.py --config collector_config.example.yaml --interval 3600
+`;
+                    folder.file('README.txt', readme);
+                    const blob = await zip.generateAsync({ type: 'blob' });
+                    const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
-                    a.href = u; a.download = u.split('/').pop() || 'file';
-                    document.body.appendChild(a); a.click();
-                    setTimeout(() => a.remove(), 250);
-                    try { showToast(`正在下载第 ${i}/${total} 个文件…`, 'info'); } catch {}
-                    if (i < total) await new Promise(r => setTimeout(r, 500));
+                    a.href = url;
+                    a.download = 'python-collector.zip';
+                    a.rel = 'noopener';
+                    document.body.appendChild(a);
+                    a.click();
+                    setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 500);
+                    showToast('整包下载完成 · 双击 start_collector.bat 或 .command 一键运行', 'success');
+                  } catch (e) {
+                    console.error(e);
+                    showToast('打包失败: ' + (e.message || e), 'error');
                   }
-                  try { showToast('下载完成', 'success'); } catch {}
                 }}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
@@ -2096,7 +2704,7 @@ function DownloadsPage({ onClose, showToast }) {
                 >
                   <Download size={16} />
                 </motion.span>
-                一键下载 Python 采集工具（3 个文件）
+                一键下载 Python 采集工具（ZIP）
               </motion.button>
             </div>
           </div>
@@ -2109,12 +2717,13 @@ function DownloadsPage({ onClose, showToast }) {
   );
 }
 
-function UserSwitcher({ value, users, onChange, currentUser, isAdmin, onGoAdmin, onLogout, onProfile }) {
+function UserSwitcher({ value, users, onChange, currentUser, isAdmin, onGoAdmin, onLogout, onProfile, onOpenCollector, mockEnabled, onToggleMock }) {
   const [open, setOpen] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [inviteRole, setInviteRole] = useState('operator');
   const [inviteDays, setInviteDays] = useState('7');
   const [busy, setBusy] = useState(false);
+  const [mockBusy, setMockBusy] = useState(false);
   const current = users.find(u => u.operator_uid === value) || users[0];
   const submitInvite = async () => {
     setBusy(true);
@@ -2122,6 +2731,11 @@ function UserSwitcher({ value, users, onChange, currentUser, isAdmin, onGoAdmin,
       await window.__genInvite?.({ role: inviteRole, expires_days: inviteDays ? Number(inviteDays) : null });
       setOpen(false); setShowInvite(false);
     } finally { setBusy(false); }
+  };
+  const handleToggleMock = async () => {
+    if (mockBusy) return;
+    setMockBusy(true);
+    try { await onToggleMock?.(); } finally { setTimeout(() => setMockBusy(false), 350); }
   };
   return (
     <div className="relative">
@@ -2167,6 +2781,50 @@ function UserSwitcher({ value, users, onChange, currentUser, isAdmin, onGoAdmin,
             </div>
             {!showInvite ? (
               <>
+                <div className="px-4 py-2.5 border-b border-black/[0.04] bg-gradient-to-r from-emerald-50/70 via-teal-50/40 to-transparent">
+                  <button
+                    onClick={handleToggleMock}
+                    disabled={mockBusy}
+                    className="w-full flex items-center gap-3 text-left group disabled:opacity-70"
+                  >
+                    <div className={`w-9 h-9 rounded-xl shrink-0 flex items-center justify-center shadow-sm ${mockEnabled ? 'bg-gradient-to-br from-emerald-400 to-teal-500' : 'bg-gradient-to-br from-slate-400 to-slate-600'}`}>
+                      <Theater size={16} className="text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-bold text-ink-800 flex items-center gap-1.5">
+                        模拟数据填充
+                        {mockEnabled && <span className="text-[9.5px] font-bold px-1.5 py-[2px] rounded-md bg-emerald-100 text-emerald-700">已启用</span>}
+                        {!mockEnabled && <span className="text-[9.5px] font-bold px-1.5 py-[2px] rounded-md bg-slate-200 text-slate-700">已暂停</span>}
+                      </div>
+                      <div className="text-[10.5px] text-ink-500 mt-0.5">
+                        {mockEnabled ? '数据空缺处自动填充演示数据；关闭后仅显示真实采集结果（全 0 为空数据正常）' : '开启后数据空缺处自动填充演示数据（不影响真实入库）'}
+                      </div>
+                    </div>
+                    <div className={`shrink-0 h-6 w-11 rounded-full transition relative shadow-inner ${mockEnabled ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                      <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-200 ${mockEnabled ? 'left-[22px]' : 'left-0.5'} ${mockBusy ? 'scale-90' : ''}`} />
+                    </div>
+                  </button>
+                </div>
+                <div className="px-4 py-2 border-b border-black/[0.04] bg-gradient-to-r from-violet-50/60 via-indigo-50/40 to-transparent">
+                  <button
+                    onClick={() => { onOpenCollector?.(); setOpen(false); }}
+                    className="w-full flex items-center gap-3 text-left group"
+                  >
+                    <div className="w-9 h-9 rounded-xl shrink-0 flex items-center justify-center shadow-sm bg-gradient-to-br from-violet-500 to-indigo-600">
+                      <KeyRound size={16} className="text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-bold text-ink-800 flex items-center gap-1.5">
+                        🔑 采集器配置 & 授权 Token
+                        <span className="text-[9.5px] font-bold px-1.5 py-[2px] rounded-md bg-violet-100 text-violet-700">推荐</span>
+                      </div>
+                      <div className="text-[10.5px] text-ink-500 mt-0.5">
+                        生成采集器 Token → 粘贴到 Chrome 插件或 Python 脚本，开始双向匹配 & 真实入库
+                      </div>
+                    </div>
+                    <ChevronRight size={16} className="text-ink-400 group-hover:text-violet-600 transition shrink-0" />
+                  </button>
+                </div>
                 <div className="px-4 py-2 border-b border-black/[0.04] bg-ink-50/40">
                   <div className="text-[11px] font-semibold text-ink-500 uppercase tracking-wider">切换运营档案（数据视角）</div>
                 </div>
@@ -3711,6 +4369,16 @@ export default function App() {
   }, [showToast]);
 
   useEffect(() => {
+    if (pageView === 'profile') {
+      const t = setTimeout(() => {
+        const el = document.getElementById('collector-tokens-section') || document.getElementById('collector_tokens_section') || document.querySelector('[data-collector-section="1"]');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 120);
+      return () => clearTimeout(t);
+    }
+  }, [pageView]);
+
+  useEffect(() => {
     const deriveAuth = (snap) => {
       const isAuth = snap?.isAuthenticated ?? (snap?.mode === 'jwt' && !!snap?.user);
       const user = snap?.currentUser ?? snap?.user ?? null;
@@ -3973,6 +4641,27 @@ export default function App() {
   }, [loadData, currentUid]);
 
   const isAdmin = (currentUser?.role || data?.currentUser?.role) === 'admin';
+  const hasJwt = !!getAuthSnapshot()?.token || !!currentUser?.uid;
+  const effectiveMockServer = data?.mock_enabled;
+  const localMockOverride = getLocalMockOverride();
+  const mockEnabled = localMockOverride !== null
+    ? localMockOverride
+    : (effectiveMockServer !== undefined ? !!effectiveMockServer : true);
+  const toggleMock = useCallback(async () => {
+    try {
+      const nextVal = !mockEnabled;
+      if (!hasJwt) {
+        setLocalMockOverride(nextVal);
+        showToast(nextVal ? '模拟数据已启用' : '模拟数据已暂停，现在仅显示真实采集数据', nextVal ? 'success' : 'warning');
+        await loadData(currentUid, { force: true });
+        return;
+      }
+      const r = await adminPatchSystemFlags([{ key: 'mock_enabled', value: nextVal ? true : false }]);
+      if (r && r.ok === false) throw new Error(r.detail || r.message || '设置失败');
+      showToast(nextVal ? '模拟数据已启用' : '模拟数据已暂停，现在仅显示真实采集数据', nextVal ? 'success' : 'warning');
+      await loadData(currentUid, { force: true });
+    } catch (e) { showToast(e.message || '操作失败，请稍后重试', 'error'); }
+  }, [mockEnabled, hasJwt, showToast, currentUid, loadData]);
 
   useEffect(() => {
     window.__genInvite = async (body) => {
@@ -5028,7 +5717,7 @@ export default function App() {
   const renderLogin = pageView === 'login' || needLogin;
   const renderRegister = pageView === 'register';
   const renderAdmin = pageView === 'admin' && isAuthenticated && isAdmin;
-  const renderProfile = pageView === 'profile' && isAuthenticated;
+  const renderProfile = pageView === 'profile';
 
   if (renderAdmin) {
     return (
@@ -5510,7 +6199,12 @@ export default function App() {
               isAdmin={isAdmin}
               onGoAdmin={() => setPageView('admin')}
               onLogout={doLogout}
-              onProfile={() => { if (isAuthenticated) setPageView('profile'); }}
+              onProfile={() => { setPageView('profile'); }}
+              onOpenCollector={() => {
+                setPageView('profile');
+              }}
+              mockEnabled={mockEnabled}
+              onToggleMock={toggleMock}
             />
           </div>
         </div>
