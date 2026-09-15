@@ -119,22 +119,18 @@ PLATFORMS: List[Dict[str, str]] = [
     dict(key="xiaohongshu",    name="小红书",       category="社媒", color="#EF4444"),
     dict(key="futu",           name="富途牛牛",     category="金融", color="#3B82F6"),
     dict(key="laohu",          name="老虎社区",     category="金融", color="#F59E0B"),
+    dict(key="huasheng",       name="华盛通",       category="金融", color="#E91E63"),
     dict(key="xueqiu",         name="雪球",         category="金融", color="#14B8A6"),
-    dict(key="changqiao",      name="长桥",         category="金融", color="#F97316"),
     dict(key="x",              name="X(Twitter)",   category="海外", color="#18181B"),
     dict(key="youtube",        name="YouTube",      category="海外", color="#FF0000"),
     dict(key="tiktok",         name="TikTok",       category="海外", color="#FE2C55"),
     dict(key="linkedin",       name="LinkedIn",     category="海外", color="#0A66C2"),
     dict(key="instagram",      name="Instagram",    category="海外", color="#E4405F"),
-    dict(key="telegram",       name="Telegram",     category="海外", color="#229ED9"),
     dict(key="discord",        name="Discord",      category="海外", color="#5865F2"),
     dict(key="stocktwits",     name="Stocktwits",   category="社区", color="#4263EB"),
     dict(key="seekingalpha",   name="Seeking Alpha",category="社区", color="#00853D"),
     dict(key="reddit",         name="Reddit",       category="社区", color="#FF4500"),
     dict(key="weibo",          name="微博",         category="社媒", color="#E6162D"),
-    dict(key="bilibili",       name="B 站",         category="社媒", color="#FB7299"),
-    dict(key="zhihu",          name="知乎",         category="社媒", color="#0066FF"),
-    dict(key="tieba",          name="百度贴吧",     category="社区", color="#2B7CFF"),
 ]
 
 OPERATORS: List[Dict[str, str]] = [
@@ -1116,6 +1112,48 @@ def upsert_account(conn: sqlite3.Connection, r: CollectItem) -> str:
     et = (r.entity_type or "ACCOUNT").upper()
     if not pk or not name:
         return ""
+    # 先查 UNIQUE 三列是否已存在：兼容 Admin 手动加入时用不同 hash 前缀长度造 id（例如 md5[:14] vs md5[:10]）
+    exist = conn.execute(
+        "SELECT id FROM accounts WHERE platform_key=? AND account_name=? AND entity_type=? LIMIT 1",
+        (pk, name, et),
+    ).fetchone()
+    if exist and exist["id"]:
+        aid = exist["id"]
+        # 还是走一次 UPDATE，同步 symbol/subreddit/target_url 等可能的变化（但不插入，不撞约束）
+        meta = platform_meta(pk)
+        extra = r.extra or {}
+        symbol, subreddit, channel = None, None, None
+        av_url, av_data = None, None
+        op_uid, op_name = None, None
+        if isinstance(extra, dict):
+            symbol = extra.get("symbol") or getattr(r, "symbol", None) or None
+            subreddit = extra.get("subreddit") or getattr(r, "subreddit", None) or None
+            channel = extra.get("channel") or getattr(r, "channel", None) or None
+        av_url = extra.get("avatar_url") or getattr(r, "avatar_url", None) or None
+        av_data = extra.get("avatar_data_url") or getattr(r, "avatar_data_url", None) or None
+        if isinstance(extra, dict):
+            op_uid = extra.get("assigned_operator_uid") or r.operator_uid or None
+            op_name = extra.get("assigned_operator_name") or r.operator_name or None
+        else:
+            op_uid = r.operator_uid or None
+            op_name = r.operator_name or None
+        conn.execute(
+            """UPDATE accounts SET
+                 platform_category=COALESCE(?, platform_category),
+                 target_url=COALESCE(?, target_url),
+                 symbol=COALESCE(?, symbol),
+                 subreddit=COALESCE(?, subreddit),
+                 channel=COALESCE(?, channel),
+                 assigned_operator_uid=COALESCE(NULLIF(?,''), assigned_operator_uid),
+                 assigned_operator_name=COALESCE(NULLIF(?,''), assigned_operator_name),
+                 avatar_url=COALESCE(?, avatar_url),
+                 avatar_data_url=COALESCE(?, avatar_data_url),
+                 active=1, updated_at=datetime('now')
+               WHERE id=?""",
+            (meta.get("category"), r.target_url or None, symbol, subreddit, channel,
+             op_uid, op_name, av_url, av_data, aid),
+        )
+        return aid
     meta = platform_meta(pk)
     aid = f"acc_{hashlib.md5(f'{pk}|{name}|{et}'.encode()).hexdigest()[:10]}"
     symbol = None
@@ -1128,8 +1166,8 @@ def upsert_account(conn: sqlite3.Connection, r: CollectItem) -> str:
         symbol = extra.get("symbol") or r.symbol or None
         subreddit = extra.get("subreddit") or r.subreddit or None
         channel = extra.get("channel") or r.channel or None
-        avatar_url = extra.get("avatar_url") or None
-        avatar_data_url = extra.get("avatar_data_url") or None
+        avatar_url = extra.get("avatar_url") or getattr(r, "avatar_url", None) or None
+        avatar_data_url = extra.get("avatar_data_url") or getattr(r, "avatar_data_url", None) or None
     conn.execute(
         """INSERT INTO accounts(id,account_name,entity_type,platform,platform_key,platform_category,target_url,symbol,subreddit,channel,assigned_operator_uid,assigned_operator_name,avatar_color,avatar_url,avatar_data_url,active,updated_at)
            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,datetime('now'))
@@ -1193,6 +1231,11 @@ def insert_record(conn: sqlite3.Connection, r: CollectItem):
     rec_id = r.id or f"rec_{account_id or hashlib.md5(str(ts_ms).encode()).hexdigest()[:8]}_{ts_ms}"
     day_key = _dt.datetime.now().isoformat(timespec="seconds")[:10]
     rec_id_pk = f"{account_id or 'na'}_{day_key}"
+    _new_members = int(r.members or 0)
+    _new_msg24 = int(r.message_volume_24h or 0)
+    _new_posts24 = int(r.posts_24h or 0)
+    _new_bull = float(r.sentiment_bull or 0)
+    _new_bear = float(r.sentiment_bear or 0)
     conn.execute(
         """INSERT INTO records(id,account_id,entity_type,account,platform,platform_key,target_url,followers,following,likes,views,comments,collect,engagement_rate,
                               members,online,message_volume_24h,posts_24h,sentiment_bull,sentiment_bear,symbol_price,symbol_change_pct,
@@ -1203,21 +1246,21 @@ def insert_record(conn: sqlite3.Connection, r: CollectItem):
              platform=excluded.platform,
              platform_key=excluded.platform_key,
              target_url=excluded.target_url,
-             followers=excluded.followers,
-             following=excluded.following,
-             likes=excluded.likes,
-             views=excluded.views,
-             comments=excluded.comments,
-             collect=excluded.collect,
-             engagement_rate=excluded.engagement_rate,
-             members=excluded.members,
-             online=excluded.online,
-             message_volume_24h=excluded.message_volume_24h,
-             posts_24h=excluded.posts_24h,
-             sentiment_bull=excluded.sentiment_bull,
-             sentiment_bear=excluded.sentiment_bear,
-             symbol_price=excluded.symbol_price,
-             symbol_change_pct=excluded.symbol_change_pct,
+             followers=CASE WHEN excluded.followers>0 THEN excluded.followers ELSE records.followers END,
+             following=CASE WHEN excluded.following>0 THEN excluded.following ELSE records.following END,
+             likes=CASE WHEN excluded.likes>0 THEN excluded.likes ELSE records.likes END,
+             views=CASE WHEN excluded.views>0 THEN excluded.views ELSE records.views END,
+             comments=CASE WHEN excluded.comments>0 THEN excluded.comments ELSE records.comments END,
+             collect=CASE WHEN excluded.collect>0 THEN excluded.collect ELSE records.collect END,
+             engagement_rate=CASE WHEN excluded.engagement_rate>0 THEN excluded.engagement_rate ELSE records.engagement_rate END,
+             members=CASE WHEN ? > 0 THEN ? ELSE COALESCE(records.members,0) END,
+             online=CASE WHEN excluded.online>=0 AND excluded.online IS NOT NULL THEN excluded.online ELSE COALESCE(records.online,0) END,
+             message_volume_24h=CASE WHEN ? > 0 THEN ? ELSE COALESCE(records.message_volume_24h,0) END,
+             posts_24h=CASE WHEN ? > 0 THEN ? ELSE COALESCE(records.posts_24h,0) END,
+             sentiment_bull=CASE WHEN ? > 0 THEN ? ELSE COALESCE(records.sentiment_bull,0) END,
+             sentiment_bear=CASE WHEN ? > 0 THEN ? ELSE COALESCE(records.sentiment_bear,0) END,
+             symbol_price=CASE WHEN excluded.symbol_price IS NOT NULL AND excluded.symbol_price > 0 THEN excluded.symbol_price ELSE records.symbol_price END,
+             symbol_change_pct=CASE WHEN excluded.symbol_change_pct IS NOT NULL THEN excluded.symbol_change_pct ELSE records.symbol_change_pct END,
              extra=excluded.extra,
              latest_post=excluded.latest_post,
              posts=excluded.posts,
@@ -1233,14 +1276,19 @@ def insert_record(conn: sqlite3.Connection, r: CollectItem):
         (rec_id_pk, account_id or None, r.entity_type or "ACCOUNT", r.account, r.platform or platform_meta(r.platform_key or "")["name"],
          (r.platform_key or ""), r.target_url or None,
          int(r.followers or 0), int(r.following or 0), int(r.likes or 0), int(r.views or 0), int(r.comments or 0), int(r.collect or 0), float(r.engagement_rate or 0),
-         int(r.members or 0), int(r.online or 0), int(r.message_volume_24h or 0), int(r.posts_24h or 0), float(r.sentiment_bull or 0), float(r.sentiment_bear or 0),
+         _new_members, int(r.online or 0), _new_msg24, _new_posts24, _new_bull, _new_bear,
          r.symbol_price, r.symbol_change_pct,
          json.dumps(r.extra or {}, ensure_ascii=False),
          json.dumps(r.latest_post or {}, ensure_ascii=False),
          json.dumps([p.model_dump() for p in (r.posts or [])], ensure_ascii=False),
          r.source or "chrome_extension", r.operator_uid or None, r.operator_name or None, r.machine_id or None, r.machine_name or None, r.client_version or None,
          None,
-         _dt.datetime.now().isoformat(timespec="seconds"), ts_ms),
+         _dt.datetime.now().isoformat(timespec="seconds"), ts_ms,
+         _new_members, _new_members,
+         _new_msg24, _new_msg24,
+         _new_posts24, _new_posts24,
+         _new_bull, _new_bull,
+         _new_bear, _new_bear),
     )
     if account_id:
         snapshot_daily(conn, account_id, r)
@@ -1397,6 +1445,21 @@ def api_collector_bootstrap(token: Optional[str] = None):
                     expires_at=row["expires_at"],
                     last_used_at=row["last_used_at"],
                 )
+        monitor_whitelist = [
+            dict(
+                id=r["id"],
+                platform_key=r["platform_key"],
+                entity_type=r["entity_type"],
+                account_name=r["account_name"],
+                symbol=r["symbol"],
+                subreddit=r["subreddit"],
+                target_url=r["target_url"],
+            )
+            for r in c.execute(
+                "SELECT id, platform_key, entity_type, account_name, symbol, subreddit, target_url "
+                "FROM accounts WHERE active=1 AND entity_type IN ('STOCK','SUBREDDIT') ORDER BY account_name"
+            ).fetchall()
+        ]
     return {
         "ok": True,
         "server_version": APP_VERSION,
@@ -1409,6 +1472,7 @@ def api_collector_bootstrap(token: Optional[str] = None):
         "operators": operators,
         "token_identity": me,
         "token_error": token_error,
+        "monitor_whitelist": monitor_whitelist,
         "docs": "把 token 放到 heartbeat / collect-data body 的 operator_token 字段",
     }
 
@@ -1496,15 +1560,83 @@ async def api_collect_data(req: CollectRequest, request: Request):
             item.client_version = item.client_version or req.version
             item.source = item.source or req.source or "chrome_extension"
             try:
-                name = (item.account or "").strip()
-                pk = (item.platform_key or "").strip() or (item.platform or "").lower()
-                et = (item.entity_type or "ACCOUNT").upper()
+                name_raw = (
+                    getattr(item, 'account', None)
+                    or getattr(item, 'account_name', None)
+                    or getattr(item, 'name', None)
+                    or ""
+                )
+                name = str(name_raw).strip()
+                pk = (getattr(item, 'platform_key', None) or "").strip() or (getattr(item, 'platform', None) or "").lower()
+                et = (getattr(item, 'entity_type', None) or "ACCOUNT").upper()
                 aid = f"acc_{hashlib.md5(f'{pk}|{name}|{et}'.encode()).hexdigest()[:10]}" if pk and name else ""
-                extra = item.extra
+                extra = getattr(item, 'extra', None)
                 try:
                     extra_dict = extra.model_dump() if hasattr(extra, "model_dump") else (dict(extra) if extra else {})
                 except Exception:
                     extra_dict = {}
+                # ====== 后端最后一道白名单校验：STOCK/SUBREDDIT 必须在官方监控清单（方案 A 严格）
+                if et in {"STOCK", "SUBREDDIT"}:
+                    sym_top = (
+                        getattr(item, 'symbol', None)
+                        or extra_dict.get("symbol")
+                        or (name if et == "STOCK" else None)
+                        or ""
+                    )
+                    sub_top = (
+                        getattr(item, 'subreddit', None)
+                        or extra_dict.get("subreddit")
+                        or (name if et == "SUBREDDIT" else None)
+                        or ""
+                    )
+                    sym = str(sym_top).strip().upper() if et == "STOCK" else None
+                    sub_raw = str(sub_top).strip().lower() if et == "SUBREDDIT" else None
+                    sub = sub_raw[2:] if sub_raw and sub_raw.startswith("r/") else sub_raw
+                    wl_sym = sym if et == "STOCK" else None
+                    wl_sub = f"r/{sub}" if (et == "SUBREDDIT" and sub) else None
+                    wl_sub_match = wl_sub if et == "SUBREDDIT" else None
+                    wl_acc_match = (wl_sym if et == "STOCK" else wl_sub)
+                    wl_row = c.execute(
+                        "SELECT id, platform_key, entity_type, account_name, symbol, subreddit FROM accounts "
+                        "WHERE entity_type=? AND active=1 "
+                        "  AND (symbol=? OR subreddit=? OR account_name=?)",
+                        (et,
+                         wl_sym,
+                         wl_sub_match,
+                         wl_acc_match),
+                    ).fetchone()
+                    # platform_key 兜底兼容：有 pk 再二次校验匹配性；无 pk 或 pk 不匹配但 symbol/sub 唯一匹配也放行
+                    if wl_row and pk:
+                        row_pk = (wl_row["platform_key"] or "").lower()
+                        # 允许 platform_key 为空或模糊匹配（reddit/stocktwits 单平台）
+                        if row_pk and row_pk != pk.lower():
+                            # 冲突：再按完整 pk+symbol/sub 精确找
+                            wl_row_strict = c.execute(
+                                "SELECT id, platform_key, entity_type, account_name, symbol, subreddit FROM accounts "
+                                "WHERE platform_key=? AND entity_type=? AND active=1 "
+                                "  AND (symbol=? OR subreddit=? OR account_name=?) LIMIT 1",
+                                (pk, et, wl_sym, wl_sub_match, wl_acc_match),
+                            ).fetchone()
+                            if wl_row_strict:
+                                wl_row = wl_row_strict
+                    if not wl_row:
+                        rejected_invalid += 1
+                        rejected_detail.append({
+                            "account": name or (sym if et == "STOCK" else (f"r/{sub}" if sub else "")),
+                            "reason": "not_in_monitor_whitelist",
+                            "detail": "该 Stock/Subreddit 不在官方监控清单，请联系 Admin 添加；严格方案 A 白名单外一律拒绝入库",
+                        })
+                        continue
+                    # 强制后端重写 entity_type + account_name + account_id，不信任前端传值
+                    item.entity_type = wl_row["entity_type"]
+                    item.account = wl_row["account_name"]
+                    try:
+                        if hasattr(item, "account_id") and (not getattr(item, "account_id", None)):
+                            item.account_id = wl_row["id"]
+                    except Exception:
+                        pass
+                    aid = wl_row["id"]
+                # ====== 白名单校验结束
                 # -------------- 双重校验（后端最后一道防线：非当前运营的账号一律拒绝 --------------
                 existing = None
                 if aid:
@@ -2555,6 +2687,205 @@ def api_admin_clear_account_records(account_id: str, request: Request, user: Dic
 
 
 # ============================================================
+# Admin: 官方监控清单管理（Stocktwits 股票 + Reddit Subreddit 社区）
+# ============================================================
+
+class _AddMonitorStockReq(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=12)
+    note: Optional[str] = Field(default=None, max_length=500)
+    tags: Optional[List[str]] = Field(default=None)
+
+
+class _AddMonitorCommunityReq(BaseModel):
+    subreddit: str = Field(..., min_length=1, max_length=30)
+    note: Optional[str] = Field(default=None, max_length=500)
+    tags: Optional[List[str]] = Field(default=None)
+
+
+class _AccountLogoReq(BaseModel):
+    avatar_data_url: Optional[str] = Field(default=None)
+    avatar_url: Optional[str] = Field(default=None, max_length=1000)
+
+
+@app.put("/api/admin/accounts/{account_id}/logo", tags=["admin"])
+def api_admin_update_account_logo(
+    account_id: str,
+    body: _AccountLogoReq,
+    request: Request,
+    user: Dict[str, Any] = Depends(require_role("admin")),
+):
+    ip, ua = _client_meta(request)
+    if not body.avatar_data_url and not body.avatar_url:
+        raise HTTPException(400, "empty_payload: avatar_data_url 或 avatar_url 至少提供一项")
+    if body.avatar_data_url:
+        if len(body.avatar_data_url) > 4 * 1024 * 1024:
+            raise HTTPException(400, "payload_too_large: 头像不得超过约 3MB")
+        if not body.avatar_data_url.startswith("data:image/"):
+            raise HTTPException(400, "invalid_data_url: avatar_data_url 必须是 data:image/... 格式")
+    with get_conn() as c:
+        acc = c.execute("SELECT id, entity_type, account_name FROM accounts WHERE id=?", (account_id,)).fetchone()
+        if not acc:
+            raise HTTPException(404, "account_not_found")
+        c.execute(
+            "UPDATE accounts SET avatar_data_url=COALESCE(?, avatar_data_url), avatar_url=COALESCE(?, avatar_url), updated_at=datetime('now') WHERE id=?",
+            (body.avatar_data_url, body.avatar_url, account_id),
+        )
+        write_audit(c, user["id"], "admin_update_account_logo", True, f"id={account_id} name={acc['account_name']} type={acc['entity_type']}", ip, ua)
+    return {"ok": True, "id": account_id}
+
+
+_SYMBOL_RE = re.compile(r"^[A-Z0-9.]{1,10}$")
+_SUBR_RE = re.compile(r"^[A-Za-z0-9_-]{2,21}$")
+
+
+def _account_id_for(pk: str, name: str, et: str) -> str:
+    return f"acc_{hashlib.md5(f'{pk}|{name}|{et}'.encode()).hexdigest()[:14]}"
+
+
+@app.get("/api/admin/monitored-stocks", tags=["admin"])
+def api_admin_list_stocks(
+    q: Optional[str] = Query(None, max_length=30),
+    page: int = Query(1, ge=1, le=200),
+    size: int = Query(50, ge=1, le=200),
+    user: Dict[str, Any] = Depends(require_role("admin")),
+):
+    with get_conn() as c:
+        where = "WHERE platform_key='stocktwits' AND entity_type='STOCK'"
+        params: List[Any] = []
+        if q:
+            where += " AND (account_name LIKE ? OR symbol LIKE ?)"
+            params += [f"%{q.upper()}%", f"%{q.upper()}%"]
+        total = c.execute(f"SELECT COUNT(*) AS n FROM accounts {where}", params).fetchone()["n"]
+        rows = c.execute(
+            f"SELECT a.*, (SELECT MAX(updated_at) FROM records r WHERE r.account_id=a.id) AS last_update "
+            f"FROM accounts a {where} ORDER BY last_update DESC NULLS LAST, a.created_at DESC LIMIT ? OFFSET ?",
+            params + [size, (page - 1) * size],
+        ).fetchall()
+        items = []
+        for r in rows:
+            d = dict(r)
+            if d.get("tags") and isinstance(d["tags"], str):
+                try: d["tags"] = json.loads(d["tags"])
+                except Exception: d["tags"] = []
+            items.append(d)
+    return {"ok": True, "items": items, "total": total, "page": page, "size": size}
+
+
+@app.post("/api/admin/monitored-stocks", tags=["admin"])
+def api_admin_add_stock(body: _AddMonitorStockReq, request: Request, user: Dict[str, Any] = Depends(require_role("admin"))):
+    ip, ua = _client_meta(request)
+    sym_raw = (body.symbol or "").strip().upper()
+    m = _SYMBOL_RE.match(sym_raw)
+    if not m:
+        raise HTTPException(400, f"invalid_symbol: 仅允许字母/数字/.，长度1-10")
+    sym = m.group(0)
+    pk = "stocktwits"
+    et = "STOCK"
+    aid = _account_id_for(pk, sym, et)
+    target = f"https://stocktwits.com/symbol/{sym}"
+    avatar_color = "#6366f1,#8b5cf6"
+    tags_json = json.dumps(body.tags, ensure_ascii=False) if body.tags else None
+    with get_conn() as c:
+        exist = c.execute("SELECT id,account_name FROM accounts WHERE id=?", (aid,)).fetchone()
+        if exist:
+            raise HTTPException(409, f"already_in_list: {sym} 已在监控清单")
+        c.execute(
+            "INSERT INTO accounts (id,platform,platform_key,account_name,entity_type,symbol,target_url,avatar_color,active,note,tags,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))",
+            (aid, "Stocktwits", pk, sym, et, sym, target, avatar_color, 1, body.note or None, tags_json),
+        )
+        write_audit(c, user["id"], "admin_add_monitor_stock", True, f"symbol={sym}", ip, ua)
+    return {"ok": True, "id": aid, "symbol": sym, "account_name": sym, "target_url": target}
+
+
+@app.delete("/api/admin/monitored-stocks/{account_id}", tags=["admin"])
+def api_admin_delete_stock(account_id: str, confirm: bool = Query(False), user: Dict[str, Any] = Depends(require_role("admin"))):
+    if not confirm:
+        raise HTTPException(400, "require_confirm: 必须 confirm=true")
+    with get_conn() as c:
+        acc = c.execute("SELECT id, account_name FROM accounts WHERE id=? AND entity_type='STOCK'", (account_id,)).fetchone()
+        if not acc:
+            raise HTTPException(404, "stock_not_found")
+        c.execute("DELETE FROM daily_snapshots WHERE account_id=?", (account_id,))
+        c.execute("DELETE FROM records WHERE account_id=?", (account_id,))
+        c.execute("DELETE FROM accounts WHERE id=?", (account_id,))
+    return {"ok": True, "id": account_id, "account_name": acc["account_name"]}
+
+
+@app.get("/api/admin/monitored-communities", tags=["admin"])
+def api_admin_list_communities(
+    q: Optional[str] = Query(None, max_length=30),
+    page: int = Query(1, ge=1, le=200),
+    size: int = Query(50, ge=1, le=200),
+    user: Dict[str, Any] = Depends(require_role("admin")),
+):
+    with get_conn() as c:
+        where = "WHERE platform_key='reddit' AND entity_type='SUBREDDIT'"
+        params: List[Any] = []
+        if q:
+            sub = q.lower().removeprefix("r/")
+            where += " AND (account_name LIKE ? OR subreddit LIKE ?)"
+            params += [f"%{sub}%", f"%{sub}%"]
+        total = c.execute(f"SELECT COUNT(*) AS n FROM accounts {where}", params).fetchone()["n"]
+        rows = c.execute(
+            f"SELECT a.*, (SELECT MAX(updated_at) FROM records r WHERE r.account_id=a.id) AS last_update "
+            f"FROM accounts a {where} ORDER BY last_update DESC NULLS LAST, a.created_at DESC LIMIT ? OFFSET ?",
+            params + [size, (page - 1) * size],
+        ).fetchall()
+        items = []
+        for r in rows:
+            d = dict(r)
+            if d.get("tags") and isinstance(d["tags"], str):
+                try: d["tags"] = json.loads(d["tags"])
+                except Exception: d["tags"] = []
+            items.append(d)
+    return {"ok": True, "items": items, "total": total, "page": page, "size": size}
+
+
+@app.post("/api/admin/monitored-communities", tags=["admin"])
+def api_admin_add_community(body: _AddMonitorCommunityReq, request: Request, user: Dict[str, Any] = Depends(require_role("admin"))):
+    ip, ua = _client_meta(request)
+    raw = (body.subreddit or "").strip().lower()
+    if raw.startswith("r/"): raw = raw[2:]
+    m = _SUBR_RE.match(raw)
+    if not m:
+        raise HTTPException(400, f"invalid_subreddit: 仅允许字母/数字/_/-，长度2-21（自动去掉 r/ 前缀）")
+    sub = m.group(0)
+    pk = "reddit"
+    et = "SUBREDDIT"
+    account_name = f"r/{sub}"
+    aid = _account_id_for(pk, account_name, et)
+    target = f"https://www.reddit.com/r/{sub}/"
+    avatar_color = "#f97316,#ef4444"
+    tags_json = json.dumps(body.tags, ensure_ascii=False) if body.tags else None
+    with get_conn() as c:
+        exist = c.execute("SELECT id,account_name FROM accounts WHERE id=?", (aid,)).fetchone()
+        if exist:
+            raise HTTPException(409, f"already_in_list: r/{sub} 已在监控清单")
+        c.execute(
+            "INSERT INTO accounts (id,platform,platform_key,account_name,entity_type,subreddit,target_url,avatar_color,active,note,tags,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))",
+            (aid, "Reddit", pk, account_name, et, account_name, target, avatar_color, 1, body.note or None, tags_json),
+        )
+        write_audit(c, user["id"], "admin_add_monitor_community", True, f"subreddit=r/{sub}", ip, ua)
+    return {"ok": True, "id": aid, "account_name": account_name, "subreddit": account_name, "target_url": target}
+
+
+@app.delete("/api/admin/monitored-communities/{account_id}", tags=["admin"])
+def api_admin_delete_community(account_id: str, confirm: bool = Query(False), user: Dict[str, Any] = Depends(require_role("admin"))):
+    if not confirm:
+        raise HTTPException(400, "require_confirm: 必须 confirm=true")
+    with get_conn() as c:
+        acc = c.execute("SELECT id, account_name FROM accounts WHERE id=? AND entity_type='SUBREDDIT'", (account_id,)).fetchone()
+        if not acc:
+            raise HTTPException(404, "community_not_found")
+        c.execute("DELETE FROM daily_snapshots WHERE account_id=?", (account_id,))
+        c.execute("DELETE FROM records WHERE account_id=?", (account_id,))
+        c.execute("DELETE FROM accounts WHERE id=?", (account_id,))
+    return {"ok": True, "id": account_id, "account_name": acc["account_name"]}
+
+
+# ============================================================
 # Dashboard aggregation（对齐 api.js fetchSummary 期望字段）
 # ============================================================
 
@@ -2610,10 +2941,149 @@ def build_dashboard(days: int = 30, operator_uid: Optional[str] = None, role: Op
                 ORDER BY r2.updated_at DESC, r2.timestamp_ms DESC
                 LIMIT 1
             )
+            AND r.entity_type = 'ACCOUNT'
+            AND (a.id IS NULL OR a.entity_type = 'ACCOUNT')
             ORDER BY r.followers DESC, r.members DESC, r.views DESC
             LIMIT 500
         """
+
+        def _latest_monitors_rows(c, platform_key, entity_type):
+            platform_name = {
+                "stocktwits": "Stocktwits",
+                "reddit": "Reddit",
+            }.get(platform_key, platform_key.title())
+            # 第一段：有 records 的最新行
+            q1 = f"""
+                SELECT r.id,
+                       r.account, r.entity_type, r.platform, r.platform_key,
+                       r.target_url, r.followers, r.following, r.likes, r.views, r.comments, r.collect,
+                       r.engagement_rate, r.members, r.online, r.message_volume_24h,
+                       r.sentiment_bull, r.sentiment_bear, r.posts_24h,
+                       r.symbol_price, r.symbol_change_pct, r.latest_post, r.posts, r.source,
+                       r.operator_uid, r.operator_name, r.machine_id, r.machine_name, r.client_version,
+                       r.error, r.updated_at, r.timestamp_ms, r.account_id, r.extra,
+                       a.avatar_url          AS a_avatar_url,
+                       a.avatar_data_url     AS a_avatar_data_url,
+                       a.avatar_color        AS a_avatar_color,
+                       a.platform_category   AS a_platform_category,
+                       a.symbol              AS a_symbol, a.subreddit AS a_subreddit,
+                       a.target_url          AS a_target_url,
+                       a.symbol              AS symbol, a.subreddit AS subreddit
+                FROM records r
+                LEFT JOIN accounts a ON a.id = r.account_id
+                WHERE r.id = (
+                    SELECT r2.id FROM records r2
+                    WHERE r2.account_id = r.account_id
+                    ORDER BY r2.updated_at DESC, r2.timestamp_ms DESC
+                    LIMIT 1
+                )
+                AND r.platform_key = ?
+                AND r.entity_type = ?
+                AND (a.id IS NULL OR a.entity_type = ?)
+                ORDER BY (COALESCE(r.members, 0) + COALESCE(r.posts_24h, 0) * 50) DESC, r.account ASC
+            """
+            rows1 = [dict(r) for r in c.execute(q1, (platform_key, entity_type, entity_type))]
+            existing_ids = {r["account_id"] for r in rows1 if r.get("account_id")}
+            # 第二段：accounts 有但 records 无 -> 占位卡片（Admin 刚加还没人采）
+            q2 = f"""
+                SELECT NULL AS id,
+                       a.account_name  AS account,
+                       ? AS entity_type,
+                       ? AS platform,
+                       ? AS platform_key,
+                       NULL AS platform_category,
+                       a.target_url    AS target_url,
+                       0 AS followers, 0 AS following, 0 AS likes, 0 AS views,
+                       0 AS comments, 0 AS collect, 0 AS engagement_rate,
+                       0 AS members, 0 AS online, 0 AS message_volume_24h,
+                       0 AS sentiment_bull, 0 AS sentiment_bear,
+                       0 AS posts_24h, NULL AS symbol_price, NULL AS symbol_change_pct,
+                       NULL AS latest_post, '[]' AS posts, NULL AS source,
+                       NULL AS operator_uid, NULL AS operator_name,
+                       NULL AS machine_id, NULL AS machine_name, NULL AS client_version,
+                       NULL AS error, a.created_at AS updated_at, NULL AS timestamp_ms,
+                       a.id AS account_id, NULL AS extra, a.symbol AS symbol, a.subreddit AS subreddit,
+                       a.avatar_url          AS a_avatar_url,
+                       a.avatar_data_url     AS a_avatar_data_url,
+                       a.avatar_color        AS a_avatar_color,
+                       a.platform_category   AS a_platform_category,
+                       a.symbol              AS a_symbol, a.subreddit AS a_subreddit,
+                       a.target_url          AS a_target_url
+                FROM accounts a
+                WHERE a.platform_key = ?
+                  AND a.entity_type = ?
+                  AND a.active = 1
+            """
+            rows2 = [dict(r) for r in c.execute(q2, (entity_type, platform_name, platform_key, platform_key, entity_type))]
+            rows2 = [r for r in rows2 if r.get("account_id") not in existing_ids]
+            combined = rows1 + rows2
+            combined.sort(key=lambda r: (-(int(r.get("members") or 0) + int(r.get("posts_24h") or 0) * 50), r.get("account") or ""))
+            return combined[:200]
+
+        def _build_monitor_list(recs_raw):
+            out: List[Dict[str, Any]] = []
+            for r in recs_raw:
+                r = dict(r) if not isinstance(r, dict) else r
+                pk = r.get("platform_key") or ""
+                meta = platform_meta(pk) if pk else {"name": "", "category": "", "key": pk, "logo": None}
+                et = (r.get("entity_type") or "ACCOUNT").upper()
+                try:
+                    posts = json.loads(r.get("posts") or "[]") if isinstance(r.get("posts"), str) else (r.get("posts") or [])
+                    latest_post = json.loads(r.get("latest_post") or "{}") if isinstance(r.get("latest_post"), str) else (r.get("latest_post") or {})
+                except Exception:
+                    posts, latest_post = [], {}
+                plat_cat = r.get("a_platform_category") or meta.get("category")
+                _durl = _non_empty_data(r.get("a_avatar_data_url"))
+                _url  = _non_empty(r.get("a_avatar_url"))
+                _col  = _non_empty(r.get("a_avatar_color"))
+                _turl = _coalesce(r.get("a_target_url"), r.get("target_url")) or ""
+                sp = r.get("symbol_price")
+                sc = r.get("symbol_change_pct")
+                record = dict(
+                    id=r.get("id"),
+                    account=r.get("account") or "",
+                    platform=r.get("platform") or meta.get("name"),
+                    platform_key=pk or meta.get("key"),
+                    platform_category=plat_cat,
+                    entity_type=et,
+                    operator_uid=r.get("operator_uid"),
+                    operator_name=r.get("operator_name"),
+                    machine_id=r.get("machine_id"),
+                    machine_name=r.get("machine_name"),
+                    updated_at=r.get("updated_at"),
+                    target_url=_turl,
+                    url=_turl,
+                    avatar_url=_durl or _url,
+                    avatar_data_url=_durl,
+                    avatar_gradient=_col or (
+                        "#6366f1,#8b5cf6" if et == "STOCK" else "#f97316,#ef4444"
+                    ),
+                    followers=int(r.get("followers") or 0),
+                    following=int(r.get("following") or 0),
+                    likes=int(r.get("likes") or 0),
+                    views=int(r.get("views") or 0),
+                    comments=int(r.get("comments") or 0),
+                    collect=int(r.get("collect") or 0),
+                    engagement_rate=float(r.get("engagement_rate") or 0),
+                    members=int(r.get("members") or 0),
+                    online=int(r.get("online") or 0),
+                    message_volume_24h=int(r.get("message_volume_24h") or 0),
+                    posts_24h=int(r.get("posts_24h") or 0),
+                    sentiment_bull=float(r.get("sentiment_bull") or 0),
+                    sentiment_bear=float(r.get("sentiment_bear") or 0),
+                    symbol_price=(float(sp) if sp is not None else None),
+                    symbol_change_pct=(float(sc) if sc is not None else None),
+                    symbol=r.get("a_symbol") or r.get("symbol"),
+                    subreddit=r.get("a_subreddit") or r.get("subreddit"),
+                    latest_post=latest_post,
+                    posts=posts,
+                )
+                out.append(record)
+            return out
+
         recs_raw = [dict(r) for r in c.execute(latest_q)]
+        stock_raw = _latest_monitors_rows(c, "stocktwits", "STOCK")
+        reddit_raw = _latest_monitors_rows(c, "reddit", "SUBREDDIT")
         latest_records: List[Dict[str, Any]] = []
         for r in recs_raw:
             pk = r["platform_key"]
@@ -2674,7 +3144,7 @@ def build_dashboard(days: int = 30, operator_uid: Optional[str] = None, role: Op
                 daily_trend=[],
             )
             _cur_val = (record["followers"] if et == "ACCOUNT" else record["members"]) or 0
-            if _cur_val > 0 and mock_en:
+            if False and _cur_val > 0:  # 2026-09-15: 移除模拟数据填充，仅保留真实采集趋势
                 _base = max(1, int(_cur_val * 0.72))
                 _seed = (hash(record["account"] or record["id"] or f"{pk}-{i}") % 1000) / 1000.0
                 _rec_start = _dt.date.today() - _dt.timedelta(days=29)
@@ -2712,6 +3182,9 @@ def build_dashboard(days: int = 30, operator_uid: Optional[str] = None, role: Op
                 if record["members"] == 0 and record["message_volume_24h"] == 0 and record["posts_24h"] == 0:
                     record["abnormal"] = True
             latest_records.append(record)
+
+        stocktwits_monitors = _build_monitor_list(stock_raw)
+        reddit_monitors = _build_monitor_list(reddit_raw)
 
         machines = [dict(r) for r in c.execute("SELECT * FROM machines ORDER BY last_hb_at DESC LIMIT 100")]
 
@@ -2786,7 +3259,7 @@ def build_dashboard(days: int = 30, operator_uid: Optional[str] = None, role: Op
                 if k != "date":
                     plat_metrics[k] = max(plat_metrics.get(k, 0), v)
             trend.append(entry)
-        if _snap_count == 0 and mock_en:
+        if _snap_count == 0 and False:  # 2026-09-15: 移除模拟数据填充，空快照即真实空
             _finals: Dict[str, int] = {}
             for r in latest_records:
                 _pname = r["platform"]
@@ -2808,6 +3281,119 @@ def build_dashboard(days: int = 30, operator_uid: Optional[str] = None, role: Op
                     entry[k] = prev.get(k) or 0
                 else:
                     prev[k] = cur
+
+        op_filter_sql = ""
+        op_params: List[Any] = [_dt.date.today() - _dt.timedelta(days=365)]
+        if operator_uid_filter:
+            op_filter_sql = " AND operator_uid = ? "
+            op_params.append(operator_uid_filter)
+        freq_rows = c.execute(
+            f"""
+            SELECT date(updated_at)                       AS d,
+                   platform_key                            AS pk,
+                   COUNT(*)                                AS n,
+                   SUM(COALESCE(posts_24h, 0))             AS s_p24,
+                   SUM(COALESCE(message_volume_24h, 0))    AS s_msg,
+                   SUM(COALESCE(views, 0))                 AS s_views,
+                   SUM(COALESCE(likes, 0))                 AS s_likes,
+                   SUM(COALESCE(comments, 0))              AS s_comments
+            FROM records
+            WHERE datetime(updated_at) >= datetime(?)
+                  {op_filter_sql}
+            GROUP BY d, pk
+            ORDER BY d, pk
+            """,
+            op_params,
+        ).fetchall()
+        by_day_pk: Dict[str, Dict[str, int]] = {}
+        total_by_day: Dict[str, int] = {}
+        all_pk_order = [p["key"] for p in PLATFORMS]
+        for fr in freq_rows:
+            d = fr["d"]
+            pk = fr["pk"] or "unknown"
+            if pk not in all_pk_order:
+                all_pk_order.append(pk)
+            n = int(fr["n"] or 0)
+            s_p24 = int(fr["s_p24"] or 0)
+            s_msg = int(fr["s_msg"] or 0)
+            s_views = int(fr["s_views"] or 0)
+            s_likes = int(fr["s_likes"] or 0)
+            s_comments = int(fr["s_comments"] or 0)
+            value = n + s_p24 + s_msg + (s_views // 500) + (s_likes // 20) + (s_comments // 10)
+            if d not in by_day_pk:
+                by_day_pk[d] = {}
+                total_by_day[d] = 0
+            by_day_pk[d][pk] = int(value)
+            total_by_day[d] += int(value)
+        today = _dt.date.today()
+        start_day = today - _dt.timedelta(days=365)
+        days_out: List[Dict[str, Any]] = []
+        cursor = start_day
+        while cursor <= today:
+            ds = cursor.isoformat()
+            day_vals = by_day_pk.get(ds, {})
+            row: Dict[str, Any] = {
+                "date": ds,
+                "total": int(total_by_day.get(ds) or 0),
+                "by_platform": {pk: int(day_vals.get(pk) or 0) for pk in all_pk_order},
+            }
+            days_out.append(row)
+            cursor += _dt.timedelta(days=1)
+        calendar_platforms = [
+            {**platform_meta(p["key"]), "key": p["key"]} for p in PLATFORMS
+        ]
+        hourly_rows = c.execute(
+            f"""
+            SELECT CAST(strftime('%H', updated_at) AS INTEGER) AS hr,
+                   platform_key                                      AS pk,
+                   COUNT(*)                                         AS n,
+                   SUM(COALESCE(posts_24h, 0))                     AS s_p24,
+                   SUM(COALESCE(message_volume_24h, 0))            AS s_msg,
+                   SUM(COALESCE(views, 0))                         AS s_views,
+                   SUM(COALESCE(likes, 0))                         AS s_likes,
+                   SUM(COALESCE(comments, 0))                      AS s_comments
+            FROM records
+            WHERE datetime(updated_at) >= datetime(?)
+                  {op_filter_sql}
+            GROUP BY hr, pk
+            ORDER BY hr, pk
+            """,
+            op_params,
+        ).fetchall()
+        by_hr_pk: Dict[int, Dict[str, int]] = {h: {} for h in range(24)}
+        total_by_hr = {h: 0 for h in range(24)}
+        for fr in hourly_rows:
+            hr = int(fr["hr"] or 0)
+            if not (0 <= hr <= 23):
+                continue
+            pk = fr["pk"] or "unknown"
+            n = int(fr["n"] or 0)
+            s_p24 = int(fr["s_p24"] or 0)
+            s_msg = int(fr["s_msg"] or 0)
+            s_views = int(fr["s_views"] or 0)
+            s_likes = int(fr["s_likes"] or 0)
+            s_comments = int(fr["s_comments"] or 0)
+            value = n + s_p24 + s_msg + (s_views // 500) + (s_likes // 20) + (s_comments // 10)
+            by_hr_pk[hr][pk] = int(value)
+            total_by_hr[hr] += int(value)
+        hourly_distribution = [
+            {
+                "hour": h,
+                "total": int(total_by_hr[h]),
+                "by_platform": {pk: int(by_hr_pk[h].get(pk) or 0) for pk in all_pk_order},
+            }
+            for h in range(24)
+        ]
+        total_freq = sum(r["total"] for r in days_out)
+        active_days_count = sum(1 for r in days_out if r["total"] > 0)
+        post_frequency_calendar = {
+            "days": days_out,
+            "platforms": calendar_platforms,
+            "hourly_distribution": hourly_distribution,
+            "total_days": len(days_out),
+            "total_value": total_freq,
+            "active_days": active_days_count,
+        }
 
     current_user = dict(
         uid=operator_uid or "admin_001",
@@ -2845,7 +3431,9 @@ def build_dashboard(days: int = 30, operator_uid: Optional[str] = None, role: Op
         collector_machines=machines,
         viral_alerts=[],
         ai_diagnosis=[],
-        mock_enabled=mock_en,
+        stocktwits_monitors=stocktwits_monitors,
+        reddit_monitors=reddit_monitors,
+        post_frequency_calendar=post_frequency_calendar,
     )
 
 

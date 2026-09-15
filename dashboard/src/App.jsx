@@ -18,16 +18,18 @@ import {
   Server, Flame, Clock, X, Layers, Heart, MessageCircle, Repeat2, ArrowUpRight, Building2,
   Sparkles, Copy, Cpu, AlertOctagon, BellRing, User, LogOut, KeyRound,
   Puzzle, Code2, FileJson, FileCode, FileCode2, Package, BookOpen, Github, CheckCircle2, ArrowLeft, Settings, Check, Terminal, FolderOpen, Play,
-  Camera, XCircle, Pencil, Save, Theater, Trash2, PlusCircle, Trophy,
+  Camera, XCircle, Pencil, Plus, Save, Trash2, PlusCircle, Trophy, Sun, Moon, Sunrise, Sunset,
 } from 'lucide-react';
 
 import {
-  fetchSummary, fetchWhoami, exportCSV, exportCSVFromData, PLATFORM_META, OPERATORS, PLATFORM_LOGOS, setJwtToken, clearSession, sanitizeUrl,
+  fetchSummary, fetchWhoami, exportCSV, exportCSVFromData, PLATFORM_META, PLATFORM_LOGOS, setJwtToken, clearSession, sanitizeUrl,
   initAuth, loginWithPassword, registerWithInvite, logout, ssoPasteToken, fetchSsoConfig, adminApi, subscribeAuth, getAuthSnapshot,
   fetchMe, updateMe, changePassword, updateRecord,
   listCollectorTokens, listOperators, createCollectorToken, revokeCollectorToken, adminListSystemFlags, adminPatchSystemFlags,
   listCollectorMachines, adminSiteOverview, adminClearData, adminDeleteAccount,
-  getLocalMockOverride, setLocalMockOverride,
+  adminListMonitoredStocks, adminAddMonitoredStock, adminDeleteMonitoredStock,
+  adminListMonitoredCommunities, adminAddMonitoredCommunity, adminDeleteMonitoredCommunity,
+  adminUpdateAccountLogo,
 } from './lib/api.js';
 import AccountDetailDrawer from './AccountDetailDrawer.jsx';
 import PlatformDetailModal from './PlatformDetailModal.jsx';
@@ -254,11 +256,8 @@ function LoginPage({ onLoginOk, onGoRegister, showToast: externalToast }) {
                 </button>
               </form>
             )}
-            <div className="mt-4 pt-3 border-t border-black/[0.05] flex items-center justify-between">
-              <button onClick={onGoRegister} className="text-[12px] font-semibold text-indigo-700 hover:text-indigo-800 flex items-center gap-1">
-                <UserCog size={12} />使用邀请码注册
-              </button>
-              <div className="text-[11px] text-ink-400">v4.1 · JWT + SSO 双轨</div>
+            <div className="mt-4 pt-3 border-t border-black/[0.05] flex items-center justify-end">
+              <div className="text-[11px] text-ink-400">v4.2 · JWT + SSO 双轨 · 仅管理员创建账号</div>
             </div>
           </div>
         </div>
@@ -574,7 +573,7 @@ function InviteCodeModal({ open, onClose, onOk }) {
   );
 }
 
-function AdminUserManagementPage({ onBack, currentUser, showToast }) {
+function AdminUserManagementPage({ onBack, currentUser, showToast, initialTab, tokensPanelJSX }) {
   if (!currentUser || currentUser.role !== 'admin') {
     try { showToast?.('无权限：仅管理员可访问后台页面', 'error'); } catch {}
     try { onBack?.(); } catch {}
@@ -648,6 +647,118 @@ function AdminUserManagementPage({ onBack, currentUser, showToast }) {
   };
   const copy = (txt, label = '已复制') => { if (!txt) return; navigator.clipboard?.writeText(String(txt)); showToast(`${label}：${txt}`, 'success'); };
 
+  const [adminTab, setAdminTab] = useState('users'); // users | tokens | stocks | communities
+  useEffect(() => {
+    if (initialTab && ['users', 'tokens', 'stocks', 'communities'].includes(String(initialTab))) {
+      setAdminTab(String(initialTab));
+    }
+  }, [initialTab]);
+  // ========== Shared: logo upload helpers (Part 1 - TDZ safe) ==========
+  const readFileAsDataURL = useCallback((file) => new Promise((resolve, reject) => {
+    if (!file) return reject(new Error('no_file'));
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result || ''));
+    fr.onerror = () => reject(fr.error || new Error('read_failed'));
+    fr.readAsDataURL(file);
+  }), []);
+  // ========== 股票监控 Tab ==========
+  const [stockList, setStockList] = useState([]);
+  const [stockTotal, setStockTotal] = useState(0);
+  const [stockPage, setStockPage] = useState(1);
+  const [stockSize, setStockSize] = useState(50);
+  const [stockQ, setStockQ] = useState('');
+  const [stockBusy, setStockBusy] = useState(false);
+  const [showAddStock, setShowAddStock] = useState(false);
+  const loadStocks = useCallback(async () => {
+    if (adminTab !== 'stocks') return;
+    setStockBusy(true);
+    try {
+      const r = await adminListMonitoredStocks({ q: stockQ.trim(), page: stockPage, size: stockSize });
+      setStockList(r?.items || []);
+      setStockTotal(r?.total || 0);
+    } catch (e) { showToast(e.message || '加载股票监控清单失败', 'error'); }
+    finally { setStockBusy(false); }
+  }, [adminTab, stockQ, stockPage, stockSize, showToast]);
+  useEffect(() => { loadStocks(); }, [loadStocks]);
+  useEffect(() => { if (adminTab === 'stocks') { const t = setTimeout(loadStocks, 150); return () => clearTimeout(t); } }, [adminTab]);
+  useEffect(() => { if (adminTab === 'stocks') { const t = setTimeout(() => { setStockPage(1); loadStocks(); }, 220); return () => clearTimeout(t); } }, [stockQ]);
+  const handleAddStock = async (form) => {
+    try {
+      await adminAddMonitoredStock({ symbol: form.symbol, note: form.note || undefined });
+      showToast(`已加入监控清单：${form.symbol?.toUpperCase()}`, 'success');
+      setShowAddStock(false);
+      loadStocks();
+    } catch (e) {
+      const msg = /already_in_list|409|重复/.test(e.message) ? `重复：${form.symbol} 已在监控清单` : (e.message || '添加失败');
+      showToast(msg, 'error');
+    }
+  };
+  const handleDeleteStock = async (row) => {
+    if (!confirm(`删除监控股票 ${row.account_name || row.symbol}？`)) return;
+    try {
+      await adminDeleteMonitoredStock(row.id);
+      showToast('已删除', 'success');
+      loadStocks();
+    } catch (e) { showToast(e.message || '删除失败', 'error'); }
+  };
+
+  // ========== 社区监控 Tab ==========
+  const [commList, setCommList] = useState([]);
+  const [commTotal, setCommTotal] = useState(0);
+  const [commPage, setCommPage] = useState(1);
+  const [commSize, setCommSize] = useState(50);
+  const [commQ, setCommQ] = useState('');
+  const [commBusy, setCommBusy] = useState(false);
+  const [showAddCommunity, setShowAddCommunity] = useState(false);
+  const loadCommunities = useCallback(async () => {
+    if (adminTab !== 'communities') return;
+    setCommBusy(true);
+    try {
+      const r = await adminListMonitoredCommunities({ q: commQ.trim(), page: commPage, size: commSize });
+      setCommList(r?.items || []);
+      setCommTotal(r?.total || 0);
+    } catch (e) { showToast(e.message || '加载社区监控清单失败', 'error'); }
+    finally { setCommBusy(false); }
+  }, [adminTab, commQ, commPage, commSize, showToast]);
+  useEffect(() => { loadCommunities(); }, [loadCommunities]);
+  useEffect(() => { if (adminTab === 'communities') { const t = setTimeout(loadCommunities, 150); return () => clearTimeout(t); } }, [adminTab]);
+  useEffect(() => { if (adminTab === 'communities') { const t = setTimeout(() => { setCommPage(1); loadCommunities(); }, 220); return () => clearTimeout(t); } }, [commQ]);
+  const handleAddCommunity = async (form) => {
+    try {
+      await adminAddMonitoredCommunity({ subreddit: form.subreddit, note: form.note || undefined });
+      showToast(`已加入监控清单：r/${(form.subreddit || '').toLowerCase().replace(/^r\//, '')}`, 'success');
+      setShowAddCommunity(false);
+      loadCommunities();
+    } catch (e) {
+      const msg = /already_in_list|409|重复/.test(e.message) ? '重复：该社区已在监控清单' : (e.message || '添加失败');
+      showToast(msg, 'error');
+    }
+  };
+  const handleDeleteCommunity = async (row) => {
+    if (!confirm(`删除监控社区 ${row.account_name || row.subreddit}？`)) return;
+    try {
+      await adminDeleteMonitoredCommunity(row.id);
+      showToast('已删除', 'success');
+      loadCommunities();
+    } catch (e) { showToast(e.message || '删除失败', 'error'); }
+  };
+  // ========== Shared: logo upload helpers (Part 2 - after setStockList/setCommList declared) ==========
+  const updateAccountLogoInline = useCallback((accountId, patch) => {
+    setStockList(prev => prev.map(x => x.id === accountId ? { ...x, ...patch } : x));
+    setCommList(prev => prev.map(x => x.id === accountId ? { ...x, ...patch } : x));
+  }, [setStockList, setCommList]);
+  const handlePickAccountLogo = useCallback(async (accountId, file) => {
+    if (!accountId || !file) return;
+    try {
+      const b64 = await readFileAsDataURL(file);
+      await adminUpdateAccountLogo(accountId, { avatar_data_url: b64 });
+      updateAccountLogoInline(accountId, { avatar_data_url: b64 });
+      showToast('Logo 更新成功', 'success');
+    } catch (e) {
+      showToast(e.message || 'Logo 更新失败，请稍后重试', 'error');
+    }
+  }, [readFileAsDataURL, updateAccountLogoInline, showToast]);
+
   return (
     <div className="min-h-screen w-full bg-ink-50/30">
       <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-black/[0.05]">
@@ -662,139 +773,437 @@ function AdminUserManagementPage({ onBack, currentUser, showToast }) {
             </div>
           </div>
           <div className="flex-1" />
-          <button onClick={() => setShowInvite(true)} className="h-9 px-3 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-[12.5px] font-semibold transition flex items-center gap-1.5"><Sparkles size={14} />生成邀请码</button>
-          <button onClick={() => { setLastCreated(null); setShowCreate(true); }} className="h-9 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[12.5px] font-semibold transition flex items-center gap-1.5"><UserCog size={14} />新建账号</button>
+          {adminTab === 'users' && (
+            <>
+              <button onClick={() => { setLastCreated(null); setShowCreate(true); }} className="h-9 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-[12.5px] font-semibold transition flex items-center gap-1.5"><UserCog size={14} />新建账号</button>
+            </>
+          )}
+          {adminTab === 'tokens' && (
+            currentUser?.role === 'admin' ? (
+              <button onClick={() => { setGenLabel(''); setGenDays('365'); setGenOperatorUid(currentUser?.operator_uid || ''); setShowGenToken(true); }} className="h-9 px-3 rounded-lg bg-gradient-to-br from-indigo-600 to-violet-600 hover:brightness-110 text-white text-[12.5px] font-semibold transition flex items-center gap-1.5 shadow-sm whitespace-nowrap"><PlusCircle size={14} />生成新 Token</button>
+            ) : null
+          )}
+        </div>
+        <div className="max-w-[1280px] mx-auto px-4 pb-3 flex items-center gap-1.5">
+          {[
+            { id: 'users', label: '系统用户', icon: Users, color: 'indigo', badge: null },
+            { id: 'tokens', label: '采集器授权', icon: KeyRound, color: 'indigo', badge: 'Token' },
+            { id: 'stocks', label: '股票监控', icon: TrendingUp, color: 'indigo', badge: 'Stocktwits' },
+            { id: 'communities', label: '社区监控', icon: MessageSquare, color: 'orange', badge: 'Reddit' },
+          ].map(t => {
+            const isActive = adminTab === t.id;
+            const C = t.icon;
+            const grad =
+              t.color === 'indigo' ? 'from-indigo-600 to-violet-600' :
+              t.color === 'orange' ? 'from-orange-500 to-rose-500' : 'from-violet-500 to-indigo-600';
+            return (
+              <button key={t.id} onClick={() => setAdminTab(t.id)}
+                className={`h-8 px-3.5 rounded-xl flex items-center gap-1.5 text-[12.5px] font-semibold transition ${isActive ? `bg-gradient-to-r ${grad} text-white shadow-sm` : 'bg-white hover:bg-black/[0.03] text-ink-700 border border-black/[0.06]'}`}>
+                <C size={13} />
+                {t.label}
+                {t.badge && <span className={`ml-0.5 text-[9.5px] font-bold px-1.5 py-[1px] rounded-md ${isActive ? 'bg-white/20 text-white' : 'bg-black/[0.05] text-ink-500'}`}>{t.badge}</span>}
+              </button>
+            );
+          })}
         </div>
       </div>
-      {(lastCreated?.generated_password || lastInvite?.code) && (
+      {lastCreated?.generated_password && (
         <div className="max-w-[1280px] mx-auto px-4 pt-3">
-          <div className={`rounded-2xl border px-4 py-3 flex items-center gap-3 ${lastCreated ? 'bg-indigo-50/60 border-indigo-100' : 'bg-violet-50/60 border-violet-100'}`}>
-            <div className={`shrink-0 w-9 h-9 rounded-xl flex items-center justify-center ${lastCreated ? 'bg-indigo-600' : 'bg-violet-600'}`}>
-              {lastCreated ? <UserCog size={16} className="text-white" /> : <Sparkles size={16} className="text-white" />}
+          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 flex items-center gap-3">
+            <div className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center bg-indigo-600">
+              <UserCog size={16} className="text-white" />
             </div>
             <div className="flex-1 min-w-0">
-              {lastCreated ? (
-                <>
-                  <div className="text-[12.5px] font-bold text-indigo-900">账号创建成功 <span className="font-normal text-indigo-500">（密码仅本次返回，请立即告知用户）</span></div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] font-mono">
-                    <span className="text-ink-700">用户名: <b>{lastCreated.username || '—'}</b></span>
-                    <span className="text-ink-700">ID: <b>{lastCreated.user_id || '—'}</b></span>
-                    <span className="text-rose-700">临时密码: <b>{lastCreated.generated_password || '—'}</b></span>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="text-[12.5px] font-bold text-violet-900">邀请码生成成功 · <span className="font-normal">{ROLE_LABEL[lastInvite?.role] || lastInvite?.role}</span> · 有效期 {lastInvite?.expires_at || '永久'}</div>
-                  <div className="mt-1 text-[15px] font-bold font-mono tracking-[0.15em] text-violet-700 select-all">{lastInvite?.code || ''}</div>
-                </>
-              )}
+              <div className="text-[12.5px] font-bold text-indigo-900">账号创建成功 <span className="font-normal text-indigo-500">（密码仅本次返回，请立即告知用户）</span></div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] font-mono">
+                <span className="text-ink-700">用户名: <b>{lastCreated.username || '—'}</b></span>
+                <span className="text-ink-700">ID: <b>{lastCreated.user_id || '—'}</b></span>
+                <span className="text-rose-700">临时密码: <b>{lastCreated.generated_password || '—'}</b></span>
+              </div>
             </div>
             <div className="flex gap-2 shrink-0">
-              <button onClick={() => copy(lastCreated ? (lastCreated.username + ' / 密码：' + lastCreated.generated_password) : lastInvite?.code, '已复制')} className="h-9 px-3 rounded-xl border border-black/[0.07] bg-white hover:bg-black/[0.02] text-[12.5px] font-semibold text-ink-700 transition flex items-center gap-1.5 shadow-sm"><Copy size={13} />复制</button>
-              <button onClick={() => { setLastCreated(null); setLastInvite(null); }} className="h-9 w-9 rounded-xl border border-black/[0.07] bg-white text-ink-400 hover:text-ink-700 hover:bg-black/[0.02] transition flex items-center justify-center shadow-sm"><X size={15} /></button>
+              <button onClick={() => copy(lastCreated ? (lastCreated.username + ' / 密码：' + lastCreated.generated_password) : '', '已复制')} className="h-9 px-3 rounded-xl border border-black/[0.07] bg-white hover:bg-black/[0.02] text-[12.5px] font-semibold text-ink-700 transition flex items-center gap-1.5 shadow-sm"><Copy size={13} />复制</button>
+              <button onClick={() => setLastCreated(null)} className="h-9 w-9 rounded-xl border border-black/[0.07] bg-white text-ink-400 hover:text-ink-700 hover:bg-black/[0.02] transition flex items-center justify-center shadow-sm"><X size={15} /></button>
             </div>
           </div>
         </div>
       )}
       <div className="max-w-[1280px] mx-auto px-4 py-4">
-        <div className="bg-white rounded-2xl shadow-sm border border-black/[0.05] overflow-hidden">
-          <div className="p-3.5 border-b border-black/[0.05] flex flex-wrap items-center gap-2 bg-gradient-to-b from-white to-ink-50/30">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
-              <input value={q} onChange={e => setQ(e.target.value)} placeholder="搜索用户名/邮箱..."
-                className="w-full h-10 pl-10 pr-4 rounded-xl border border-black/[0.06] bg-white shadow-sm text-[13px] focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition" />
-            </div>
-            <PopoverSelect
-              value={filterRole}
-              onChange={v => { setFilterRole(v); setPage(1); }}
-              placeholder="全部角色"
-              options={[
-                { value: '', label: '全部角色' },
-                ...Object.entries(ROLE_LABEL).map(([k, v]) => ({ value: k, label: v, colorClass: ROLE_COLOR[k] })),
-              ]}
-            />
-            <PopoverSelect
-              value={filterStatus}
-              onChange={v => { setFilterStatus(v); setPage(1); }}
-              placeholder="全部状态"
-              options={[
-                { value: '', label: '全部状态' },
-                { value: 'active', label: '启用', colorClass: STATUS_COLOR.active },
-                { value: 'disabled', label: '禁用', colorClass: STATUS_COLOR.disabled },
-              ]}
-            />
-            <div className="text-[11.5px] text-ink-400">共 <b className="text-ink-800">{total}</b> 条</div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-[12.5px] min-w-[1000px]">
-              <thead>
-                <tr className="bg-gradient-to-r from-ink-50/80 via-white to-ink-50/80 text-ink-500 text-[11px] uppercase tracking-wider border-b border-black/[0.05]">
-                  <th className="text-left px-4 py-3 font-semibold w-[180px]">用户</th>
-                  <th className="text-left px-4 py-3 font-semibold">角色</th>
-                  <th className="text-left px-4 py-3 font-semibold">状态</th>
-                  <th className="text-left px-4 py-3 font-semibold w-[180px]">绑定运营</th>
-                  <th className="text-left px-4 py-3 font-semibold w-[160px]">最近登录</th>
-                  <th className="text-left px-4 py-3 font-semibold w-[140px]">登录次数</th>
-                  <th className="text-right px-4 py-3 font-semibold">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading && !list.length ? (
-                  <tr><td colSpan={7} className="text-center py-16 text-ink-400"><RefreshCw size={16} className="inline animate-spin mr-1" />加载中...</td></tr>
-                ) : !list.length ? (
-                  <tr><td colSpan={7} className="text-center py-16 text-ink-400">暂无用户数据</td></tr>
-                ) : list.map(r => (
-                  <tr key={r.id} className="border-t border-black/[0.03] hover:bg-gradient-to-r hover:from-indigo-50/20 hover:via-white hover:to-violet-50/20 transition duration-200 group">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2.5">
-                        <UserAvatar name={r.username} size={34} gradient={AVATAR_POOL[(r.username || '').length % AVATAR_POOL.length]} />
-                        <div className="min-w-0">
-                          <div className="font-semibold text-ink-800 truncate flex items-center gap-1.5">{r.username || '—'}{r.sso_provider && <span className="text-[9px] font-mono px-1.5 py-[2px] rounded-md bg-violet-50 border border-violet-100 text-violet-700 font-semibold">SSO</span>}</div>
-                          <div className="text-[11px] text-ink-400 font-mono truncate">{r.email || '未设置邮箱'}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3"><RoleBadge role={r.role} /></td>
-                    <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
-                    <td className="px-4 py-3">
-                      <div className="text-[12px] text-ink-700 truncate">{r.operator_name || '—'}</div>
-                      <div className="text-[10.5px] text-ink-400 font-mono">{r.operator_uid || '未绑定'}</div>
-                    </td>
-                    <td className="px-4 py-3 text-ink-600 text-[12px]">{r.last_login_at ? timeFromNow(r.last_login_at) : '—'}</td>
-                    <td className="px-4 py-3 text-ink-700 font-mono tabular-nums">{r.login_count ?? 0}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => setEditUser(r)} className="h-9 w-9 rounded-xl hover:bg-indigo-50 text-indigo-700 flex items-center justify-center transition group-hover:shadow-sm" title="编辑"><Settings size={14} /></button>
-                        <button onClick={() => handleReset(r)} className="h-9 w-9 rounded-xl hover:bg-amber-50 text-amber-700 flex items-center justify-center transition group-hover:shadow-sm" title="重置密码"><KeyRound size={14} /></button>
-                        <button onClick={() => handleDisable(r)} className={`h-9 w-9 rounded-xl transition flex items-center justify-center group-hover:shadow-sm ${r.status === 'disabled' ? 'hover:bg-emerald-50 text-emerald-700' : 'hover:bg-rose-50 text-rose-700'}`} title={r.status === 'disabled' ? '启用' : '禁用'}>
-                          {r.status === 'disabled' ? <CheckCircle2 size={14} /> : <AlertOctagon size={14} />}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="px-3 py-2.5 border-t border-black/[0.05] flex items-center justify-between text-[12px] text-ink-500">
-            <div>第 <b className="text-ink-700">{page}</b> / {Math.max(1, Math.ceil(total / size))} 页</div>
-            <div className="flex items-center gap-1.5">
-              <button disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))} className="h-9 px-3 rounded-xl border border-black/[0.06] bg-white hover:bg-black/[0.02] disabled:opacity-40 text-[12.5px] font-semibold text-ink-700 transition shadow-sm">上一页</button>
+        {/* ================== 用户 Tab ================== */}
+        {adminTab === 'users' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-black/[0.05] overflow-hidden">
+            <div className="p-3.5 border-b border-black/[0.05] flex flex-wrap items-center gap-2 bg-gradient-to-b from-white to-ink-50/30">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
+                <input value={q} onChange={e => setQ(e.target.value)} placeholder="搜索用户名/邮箱..."
+                  className="w-full h-10 pl-10 pr-4 rounded-xl border border-black/[0.06] bg-white shadow-sm text-[13px] focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition" />
+              </div>
               <PopoverSelect
-                value={size}
-                onChange={v => { setSize(Number(v)); setPage(1); }}
-                placeholder={`${size} 条/页`}
-                options={[10, 20, 50, 100].map(n => ({ value: n, label: `${n} 条/页` }))}
+                value={filterRole}
+                onChange={v => { setFilterRole(v); setPage(1); }}
+                placeholder="全部角色"
+                options={[
+                  { value: '', label: '全部角色' },
+                  ...Object.entries(ROLE_LABEL).map(([k, v]) => ({ value: k, label: v, colorClass: ROLE_COLOR[k] })),
+                ]}
               />
-              <button disabled={page * size >= total} onClick={() => setPage(p => p + 1)} className="h-9 px-3 rounded-xl border border-black/[0.06] bg-white hover:bg-black/[0.02] disabled:opacity-40 text-[12.5px] font-semibold text-ink-700 transition shadow-sm">下一页</button>
+              <PopoverSelect
+                value={filterStatus}
+                onChange={v => { setFilterStatus(v); setPage(1); }}
+                placeholder="全部状态"
+                options={[
+                  { value: '', label: '全部状态' },
+                  { value: 'active', label: '启用', colorClass: STATUS_COLOR.active },
+                  { value: 'disabled', label: '禁用', colorClass: STATUS_COLOR.disabled },
+                ]}
+              />
+              <div className="text-[11.5px] text-ink-400">共 <b className="text-ink-800">{total}</b> 条</div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12.5px] min-w-[1000px]">
+                <thead>
+                  <tr className="bg-gradient-to-r from-ink-50/80 via-white to-ink-50/80 text-ink-500 text-[11px] uppercase tracking-wider border-b border-black/[0.05]">
+                    <th className="text-left px-4 py-3 font-semibold w-[180px]">用户</th>
+                    <th className="text-left px-4 py-3 font-semibold">角色</th>
+                    <th className="text-left px-4 py-3 font-semibold">状态</th>
+                    <th className="text-left px-4 py-3 font-semibold w-[180px]">绑定运营</th>
+                    <th className="text-left px-4 py-3 font-semibold w-[160px]">最近登录</th>
+                    <th className="text-left px-4 py-3 font-semibold w-[140px]">登录次数</th>
+                    <th className="text-right px-4 py-3 font-semibold">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading && !list.length ? (
+                    <tr><td colSpan={7} className="text-center py-16 text-ink-400"><RefreshCw size={16} className="inline animate-spin mr-1" />加载中...</td></tr>
+                  ) : !list.length ? (
+                    <tr><td colSpan={7} className="text-center py-16 text-ink-400">暂无用户数据</td></tr>
+                  ) : list.map(r => (
+                    <tr key={r.id} className="border-t border-black/[0.03] hover:bg-gradient-to-r hover:from-indigo-50/20 hover:via-white hover:to-violet-50/20 transition duration-200 group">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <UserAvatar name={r.username} size={34} gradient={AVATAR_POOL[(r.username || '').length % AVATAR_POOL.length]} />
+                          <div className="min-w-0">
+                            <div className="font-semibold text-ink-800 truncate flex items-center gap-1.5">{r.username || '—'}{r.sso_provider && <span className="text-[9px] font-mono px-1.5 py-[2px] rounded-md bg-violet-50 border border-violet-100 text-violet-700 font-semibold">SSO</span>}</div>
+                            <div className="text-[11px] text-ink-400 font-mono truncate">{r.email || '未设置邮箱'}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3"><RoleBadge role={r.role} /></td>
+                      <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
+                      <td className="px-4 py-3">
+                        <div className="text-[12px] text-ink-700 truncate">{r.operator_name || '—'}</div>
+                        <div className="text-[10.5px] text-ink-400 font-mono">{r.operator_uid || '未绑定'}</div>
+                      </td>
+                      <td className="px-4 py-3 text-ink-600 text-[12px]">{r.last_login_at ? timeFromNow(r.last_login_at) : '—'}</td>
+                      <td className="px-4 py-3 text-ink-700 font-mono tabular-nums">{r.login_count ?? 0}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1">
+                          <button onClick={() => setEditUser(r)} className="h-9 w-9 rounded-xl hover:bg-indigo-50 text-indigo-700 flex items-center justify-center transition group-hover:shadow-sm" title="编辑"><Settings size={14} /></button>
+                          <button onClick={() => handleReset(r)} className="h-9 w-9 rounded-xl hover:bg-amber-50 text-amber-700 flex items-center justify-center transition group-hover:shadow-sm" title="重置密码"><KeyRound size={14} /></button>
+                          <button onClick={() => handleDisable(r)} className={`h-9 w-9 rounded-xl transition flex items-center justify-center group-hover:shadow-sm ${r.status === 'disabled' ? 'hover:bg-emerald-50 text-emerald-700' : 'hover:bg-rose-50 text-rose-700'}`} title={r.status === 'disabled' ? '启用' : '禁用'}>
+                            {r.status === 'disabled' ? <CheckCircle2 size={14} /> : <AlertOctagon size={14} />}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-3 py-2.5 border-t border-black/[0.05] flex items-center justify-between text-[12px] text-ink-500">
+              <div>第 <b className="text-ink-700">{page}</b> / {Math.max(1, Math.ceil(total / size))} 页</div>
+              <div className="flex items-center gap-1.5">
+                <button disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))} className="h-9 px-3 rounded-xl border border-black/[0.06] bg-white hover:bg-black/[0.02] disabled:opacity-40 text-[12.5px] font-semibold text-ink-700 transition shadow-sm">上一页</button>
+                <PopoverSelect
+                  value={size}
+                  onChange={v => { setSize(Number(v)); setPage(1); }}
+                  placeholder={`${size} 条/页`}
+                  options={[10, 20, 50, 100].map(n => ({ value: n, label: `${n} 条/页` }))}
+                />
+                <button disabled={page * size >= total} onClick={() => setPage(p => p + 1)} className="h-9 px-3 rounded-xl border border-black/[0.06] bg-white hover:bg-black/[0.02] disabled:opacity-40 text-[12.5px] font-semibold text-ink-700 transition shadow-sm">下一页</button>
+              </div>
             </div>
           </div>
-        </div>
+        )}
+
+        {/* ================== 采集器授权 Token Tab（原首页模块，移到此处：系统用户后、股票监控前） ================== */}
+        {adminTab === 'tokens' && (
+          tokensPanelJSX || null
+        )}
+
+        {/* ================== 股票监控 Tab ================== */}
+        {adminTab === 'stocks' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-black/[0.05] overflow-hidden">
+            <div className="p-3.5 border-b border-black/[0.05] flex flex-wrap items-center gap-2 bg-gradient-to-b from-white to-indigo-50/30">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
+                <input value={stockQ} onChange={e => setStockQ(e.target.value)} placeholder="搜索股票代码（如 TSLA、NVDA、AAPL）..."
+                  className="w-full h-10 pl-10 pr-4 rounded-xl border border-black/[0.06] bg-white shadow-sm text-[13px] focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition" />
+              </div>
+              <button onClick={loadStocks} className="h-10 px-3 rounded-xl border border-black/[0.06] bg-white hover:bg-black/[0.02] text-[12.5px] font-semibold text-ink-700 transition flex items-center gap-1.5 shadow-sm"><RefreshCw size={14} className={stockBusy ? 'animate-spin' : ''} />刷新</button>
+              <button onClick={() => setShowAddStock(true)} className="h-10 px-3 rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-indigo-700 hover:brightness-105 text-white text-[12.5px] font-semibold transition flex items-center gap-1.5 shadow-sm"><Plus size={14} />添加股票</button>
+              <div className="text-[11.5px] text-ink-400">共 <b className="text-ink-800">{stockTotal}</b> 只</div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12.5px] min-w-[900px]">
+                <thead>
+                  <tr className="bg-gradient-to-r from-ink-50/80 via-white to-indigo-50/40 text-ink-500 text-[11px] uppercase tracking-wider border-b border-black/[0.05]">
+                    <th className="text-left px-4 py-3 font-semibold w-[120px]">股票代码</th>
+                    <th className="text-left px-4 py-3 font-semibold w-[120px]">平台</th>
+                    <th className="text-left px-4 py-3 font-semibold">监控 Target URL</th>
+                    <th className="text-left px-4 py-3 font-semibold w-[120px]">最近更新</th>
+                    <th className="text-left px-4 py-3 font-semibold w-[180px]">备注</th>
+                    <th className="text-right px-4 py-3 font-semibold w-[120px]">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stockBusy && !stockList.length ? (
+                    <tr><td colSpan={6} className="text-center py-16 text-ink-400"><RefreshCw size={16} className="inline animate-spin mr-1" />加载中...</td></tr>
+                  ) : !stockList.length ? (
+                    <tr><td colSpan={6} className="py-20">
+                      <div className="text-center max-w-sm mx-auto">
+                        <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center mb-3 shadow-md"><TrendingUp size={26} className="text-white" /></div>
+                        <div className="text-[14px] font-bold text-ink-800">还未添加任何监控股票</div>
+                        <div className="mt-1 text-[12px] text-ink-500">点击右上角「+ 添加股票」按钮，或通过采集插件浏览 Stocktwits 对应页面自动回填情绪与讨论数据。</div>
+                      </div>
+                    </td></tr>
+                  ) : stockList.map(r => (
+                    <tr key={r.id} className="border-t border-black/[0.03] hover:bg-gradient-to-r hover:from-indigo-50/30 hover:via-white hover:to-violet-50/20 transition duration-200 group">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <label className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center text-white text-[11.5px] font-bold shadow-sm shrink-0 relative group/avatar cursor-pointer ring-1 ring-black/[0.04]"
+                            style={!r.avatar_data_url ? { background: `linear-gradient(135deg, ${(r.avatar_color||'#6366f1,#8b5cf6').split(',')[0]}, ${(r.avatar_color||'#6366f1,#8b5cf6').split(',')[1]})` } : undefined}
+                            title={r.avatar_data_url ? '点击修改 logo' : '上传 logo'}
+                          >
+                            {r.avatar_data_url ? (
+                              <img src={r.avatar_data_url} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display='none'; }} />
+                            ) : (
+                              <span>{(r.symbol || r.account_name || 'ST').slice(0, 4)}</span>
+                            )}
+                            <div className="absolute inset-0 rounded-xl bg-black/50 opacity-0 group-hover/avatar:opacity-100 transition flex items-center justify-center text-white text-[9.5px] font-semibold">
+                              <Camera size={12} className="mr-0.5" />{r.avatar_data_url ? '修改' : '上传'}
+                            </div>
+                            <input type="file" accept="image/*" className="hidden"
+                              onChange={e => { const f = e.target.files?.[0]; if (f) handlePickAccountLogo(r.id, f); e.target.value=''; }} />
+                          </label>
+                          <div className="min-w-0">
+                            <div className="font-bold text-ink-800 font-mono tracking-wide">{r.symbol || r.account_name || '—'}</div>
+                            <div className="text-[10.5px] text-ink-400">ID: {String(r.id||'').slice(0,10)}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1 h-6 px-2 rounded-md bg-indigo-50 border border-indigo-100 text-indigo-700 text-[11px] font-bold"><TrendingUp size={11} /> Stocktwits</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <a href={r.target_url || '#'} target="_blank" rel="noreferrer" className="text-[12px] text-indigo-700 hover:text-indigo-900 font-medium truncate inline-flex items-center gap-1 max-w-full">
+                          <span className="truncate">{r.target_url || '—'}</span><ExternalLink size={11} className="shrink-0" />
+                        </a>
+                      </td>
+                      <td className="px-4 py-3 text-[12px] text-ink-600">{r.last_update ? timeFromNow(r.last_update) : (r.created_at ? timeFromNow(r.created_at) : '—')}</td>
+                      <td className="px-4 py-3 text-[12px] text-ink-600">{r.note || <span className="text-ink-300">— 无备注 —</span>}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1">
+                          <a href={r.target_url || '#'} target="_blank" rel="noreferrer" className="h-9 w-9 rounded-xl hover:bg-black/[0.04] text-ink-600 flex items-center justify-center transition group-hover:shadow-sm" title="打开页面"><ExternalLink size={14} /></a>
+                          <button onClick={() => handleDeleteStock(r)} className="h-9 w-9 rounded-xl hover:bg-rose-50 text-rose-600 flex items-center justify-center transition group-hover:shadow-sm" title="删除"><Trash2 size={14} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-3 py-2.5 border-t border-black/[0.05] flex items-center justify-between text-[12px] text-ink-500">
+              <div>第 <b className="text-ink-700">{stockPage}</b> / {Math.max(1, Math.ceil(stockTotal / stockSize))} 页</div>
+              <div className="flex items-center gap-1.5">
+                <button disabled={stockPage <= 1} onClick={() => setStockPage(p => Math.max(1, p - 1))} className="h-9 px-3 rounded-xl border border-black/[0.06] bg-white hover:bg-black/[0.02] disabled:opacity-40 text-[12.5px] font-semibold text-ink-700 transition shadow-sm">上一页</button>
+                <button disabled={stockPage * stockSize >= stockTotal} onClick={() => setStockPage(p => p + 1)} className="h-9 px-3 rounded-xl border border-black/[0.06] bg-white hover:bg-black/[0.02] disabled:opacity-40 text-[12.5px] font-semibold text-ink-700 transition shadow-sm">下一页</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================== 社区监控 Tab ================== */}
+        {adminTab === 'communities' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-black/[0.05] overflow-hidden">
+            <div className="p-3.5 border-b border-black/[0.05] flex flex-wrap items-center gap-2 bg-gradient-to-b from-white to-orange-50/30">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
+                <input value={commQ} onChange={e => setCommQ(e.target.value)} placeholder="搜索 Reddit 社区名（如 wallstreetbets、stocks，自动忽略 r/ 前缀）..."
+                  className="w-full h-10 pl-10 pr-4 rounded-xl border border-black/[0.06] bg-white shadow-sm text-[13px] focus:outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 transition" />
+              </div>
+              <button onClick={loadCommunities} className="h-10 px-3 rounded-xl border border-black/[0.06] bg-white hover:bg-black/[0.02] text-[12.5px] font-semibold text-ink-700 transition flex items-center gap-1.5 shadow-sm"><RefreshCw size={14} className={commBusy ? 'animate-spin' : ''} />刷新</button>
+              <button onClick={() => setShowAddCommunity(true)} className="h-10 px-3 rounded-xl bg-gradient-to-r from-orange-500 via-rose-500 to-red-500 hover:brightness-105 text-white text-[12.5px] font-semibold transition flex items-center gap-1.5 shadow-sm"><Plus size={14} />添加社区</button>
+              <div className="text-[11.5px] text-ink-400">共 <b className="text-ink-800">{commTotal}</b> 个</div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12.5px] min-w-[900px]">
+                <thead>
+                  <tr className="bg-gradient-to-r from-ink-50/80 via-white to-orange-50/40 text-ink-500 text-[11px] uppercase tracking-wider border-b border-black/[0.05]">
+                    <th className="text-left px-4 py-3 font-semibold w-[180px]">社区名</th>
+                    <th className="text-left px-4 py-3 font-semibold w-[120px]">平台</th>
+                    <th className="text-left px-4 py-3 font-semibold">监控 Target URL</th>
+                    <th className="text-left px-4 py-3 font-semibold w-[120px]">最近更新</th>
+                    <th className="text-left px-4 py-3 font-semibold w-[180px]">备注</th>
+                    <th className="text-right px-4 py-3 font-semibold w-[120px]">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {commBusy && !commList.length ? (
+                    <tr><td colSpan={6} className="text-center py-16 text-ink-400"><RefreshCw size={16} className="inline animate-spin mr-1" />加载中...</td></tr>
+                  ) : !commList.length ? (
+                    <tr><td colSpan={6} className="py-20">
+                      <div className="text-center max-w-sm mx-auto">
+                        <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-orange-500 to-rose-500 flex items-center justify-center mb-3 shadow-md"><MessageSquare size={26} className="text-white" /></div>
+                        <div className="text-[14px] font-bold text-ink-800">还未添加任何监控社区</div>
+                        <div className="mt-1 text-[12px] text-ink-500">点击右上角「+ 添加社区」按钮，或通过采集插件浏览 Reddit 对应 subreddit 页面自动回填情绪与讨论数据。</div>
+                      </div>
+                    </td></tr>
+                  ) : commList.map(r => (
+                    <tr key={r.id} className="border-t border-black/[0.03] hover:bg-gradient-to-r hover:from-orange-50/30 hover:via-white hover:to-rose-50/20 transition duration-200 group">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <label className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center text-white text-[13px] font-bold shadow-sm shrink-0 relative group/avatar cursor-pointer ring-1 ring-black/[0.04]"
+                            style={!r.avatar_data_url ? { background: `linear-gradient(135deg, ${(r.avatar_color||'#f97316,#ec4899').split(',')[0]}, ${(r.avatar_color||'#f97316,#ec4899').split(',')[1]})` } : undefined}
+                            title={r.avatar_data_url ? '点击修改 logo' : '上传 logo'}
+                          >
+                            {r.avatar_data_url ? (
+                              <img src={r.avatar_data_url} alt="" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display='none'; }} />
+                            ) : (
+                              <span>r</span>
+                            )}
+                            <div className="absolute inset-0 rounded-xl bg-black/50 opacity-0 group-hover/avatar:opacity-100 transition flex items-center justify-center text-white text-[9.5px] font-semibold">
+                              <Camera size={12} className="mr-0.5" />{r.avatar_data_url ? '修改' : '上传'}
+                            </div>
+                            <input type="file" accept="image/*" className="hidden"
+                              onChange={e => { const f = e.target.files?.[0]; if (f) handlePickAccountLogo(r.id, f); e.target.value=''; }} />
+                          </label>
+                          <div className="min-w-0">
+                            <div className="font-bold text-ink-800 font-mono">{r.account_name || ('r/' + (r.subreddit||'')) || '—'}</div>
+                            <div className="text-[10.5px] text-ink-400">ID: {String(r.id||'').slice(0,10)}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center gap-1 h-6 px-2 rounded-md bg-orange-50 border border-orange-100 text-orange-700 text-[11px] font-bold"><MessageSquare size={11} /> Reddit</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <a href={r.target_url || '#'} target="_blank" rel="noreferrer" className="text-[12px] text-orange-700 hover:text-orange-900 font-medium truncate inline-flex items-center gap-1 max-w-full">
+                          <span className="truncate">{r.target_url || '—'}</span><ExternalLink size={11} className="shrink-0" />
+                        </a>
+                      </td>
+                      <td className="px-4 py-3 text-[12px] text-ink-600">{r.last_update ? timeFromNow(r.last_update) : (r.created_at ? timeFromNow(r.created_at) : '—')}</td>
+                      <td className="px-4 py-3 text-[12px] text-ink-600">{r.note || <span className="text-ink-300">— 无备注 —</span>}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1">
+                          <a href={r.target_url || '#'} target="_blank" rel="noreferrer" className="h-9 w-9 rounded-xl hover:bg-black/[0.04] text-ink-600 flex items-center justify-center transition group-hover:shadow-sm" title="打开页面"><ExternalLink size={14} /></a>
+                          <button onClick={() => handleDeleteCommunity(r)} className="h-9 w-9 rounded-xl hover:bg-rose-50 text-rose-600 flex items-center justify-center transition group-hover:shadow-sm" title="删除"><Trash2 size={14} /></button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-3 py-2.5 border-t border-black/[0.05] flex items-center justify-between text-[12px] text-ink-500">
+              <div>第 <b className="text-ink-700">{commPage}</b> / {Math.max(1, Math.ceil(commTotal / commSize))} 页</div>
+              <div className="flex items-center gap-1.5">
+                <button disabled={commPage <= 1} onClick={() => setCommPage(p => Math.max(1, p - 1))} className="h-9 px-3 rounded-xl border border-black/[0.06] bg-white hover:bg-black/[0.02] disabled:opacity-40 text-[12.5px] font-semibold text-ink-700 transition shadow-sm">上一页</button>
+                <button disabled={commPage * commSize >= commTotal} onClick={() => setCommPage(p => p + 1)} className="h-9 px-3 rounded-xl border border-black/[0.06] bg-white hover:bg-black/[0.02] disabled:opacity-40 text-[12.5px] font-semibold text-ink-700 transition shadow-sm">下一页</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+      {/* ============ Modal ============ */}
       <CreateUserModal open={showCreate} operators={operators} onClose={() => setShowCreate(false)} onOk={handleCreate} />
       <EditUserModal open={!!editUser} user={editUser} operators={operators} onClose={() => setEditUser(null)} onOk={handleEdit} />
       <InviteCodeModal open={showInvite} onClose={() => setShowInvite(false)} onOk={handleInvite} />
+      <AddStockForm open={showAddStock} onClose={() => setShowAddStock(false)} onOk={handleAddStock} />
+      <AddCommunityForm open={showAddCommunity} onClose={() => setShowAddCommunity(false)} onOk={handleAddCommunity} />
     </div>
+  );
+}
+
+/* ================== Admin 后台 Modal：添加监控股票 ================== */
+function AddStockForm({ open, onClose, onOk }) {
+  const [symbol, setSymbol] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (open) { setSymbol(''); setNote(''); setBusy(false); } }, [open]);
+  const submit = async () => {
+    const s = (symbol || '').trim().toUpperCase();
+    if (!/^[A-Z0-9.]{1,10}$/.test(s)) { showToast?.('股票代码不合法：仅字母/数字/.，长度 1-10', 'error'); return; }
+    setBusy(true);
+    try { await onOk?.({ symbol: s, note: (note || '').trim() || undefined }); onClose?.(); }
+    catch (e) { showToast?.(e.message || '添加失败', 'error'); }
+    finally { setBusy(false); }
+  };
+  if (!open) return null;
+  return (
+    <ModalOverlay open={open} onClose={onClose} title="添加监控股票">
+      <div className="space-y-3.5">
+        <div><div className="text-[12px] font-semibold text-ink-700 mb-1">股票代码 <span className="text-rose-500">*</span> <span className="text-ink-400 font-normal">（自动转大写）</span></div>
+          <input value={symbol} onChange={e=>setSymbol(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')submit()}} placeholder="如 TSLA / NVDA / AAPL" maxLength={12}
+            className="w-full h-10 px-3 rounded-xl border border-black/[0.07] bg-white text-[13px] font-mono tracking-wider focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition"/>
+        </div>
+        <div><div className="text-[12px] font-semibold text-ink-700 mb-1">备注（可选）</div>
+          <textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="如：新能源、科技蓝筹、关注波动大" rows={3}
+            className="w-full px-3 py-2.5 rounded-xl border border-black/[0.07] bg-white text-[13px] focus:outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 transition resize-none"/>
+        </div>
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-3 flex items-start gap-2.5">
+          <TrendingUp size={16} className="text-indigo-600 shrink-0 mt-0.5" />
+          <div className="text-[11.5px] text-indigo-900 leading-relaxed">加入监控后，<b>任何持有采集器的人</b>浏览 <span className="font-mono">stocktwits.com/symbol/{symbol || 'TSLA'}</span> 页面≥3秒，就会自动把情绪/最新帖子回填到看板首页 Stocktwits 模块。清单外的股票严格禁止入库（方案 A）。</div>
+        </div>
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <button onClick={onClose} className="h-10 px-4 rounded-xl border border-black/[0.07] bg-white hover:bg-black/[0.02] text-[13px] font-semibold text-ink-700 transition">取消</button>
+          <button onClick={submit} disabled={busy} className="h-10 px-4 rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-indigo-700 hover:brightness-105 disabled:opacity-50 text-white text-[13px] font-semibold transition flex items-center gap-1.5 shadow-sm">{busy?<RefreshCw size={14} className="animate-spin"/> : <Plus size={14}/>} 添加到监控清单</button>
+        </div>
+      </div>
+    </ModalOverlay>
+  );
+}
+
+/* ================== Admin 后台 Modal：添加 Reddit 社区监控 ================== */
+function AddCommunityForm({ open, onClose, onOk }) {
+  const [sub, setSub] = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { if (open) { setSub(''); setNote(''); setBusy(false); } }, [open]);
+  const submit = async () => {
+    let s = (sub || '').trim().toLowerCase();
+    if (s.startsWith('r/')) s = s.slice(2);
+    if (!/^[A-Za-z0-9_-]{2,21}$/.test(s)) { showToast?.('社区名不合法：仅字母/数字/_/-，长度 2-21（自动去掉 r/ 前缀）', 'error'); return; }
+    setBusy(true);
+    try { await onOk?.({ subreddit: s, note: (note || '').trim() || undefined }); onClose?.(); }
+    catch (e) { showToast?.(e.message || '添加失败', 'error'); }
+    finally { setBusy(false); }
+  };
+  if (!open) return null;
+  return (
+    <ModalOverlay open={open} onClose={onClose} title="添加监控社区（Reddit）">
+      <div className="space-y-3.5">
+        <div><div className="text-[12px] font-semibold text-ink-700 mb-1">Subreddit 名 <span className="text-rose-500">*</span> <span className="text-ink-400 font-normal">（自动去 r/ 前缀 + 小写）</span></div>
+          <div className="flex items-center rounded-xl border border-black/[0.07] bg-white focus-within:border-orange-400 focus-within:ring-2 focus-within:ring-orange-100 transition">
+            <span className="px-3 text-[13px] font-bold font-mono text-ink-400 select-none border-r border-black/[0.05] h-10 flex items-center">r /</span>
+            <input value={sub} onChange={e=>setSub(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')submit()}} placeholder="wallstreetbets / stocks / CryptoCurrency" maxLength={24}
+              className="w-full h-10 px-3 rounded-r-xl bg-transparent text-[13px] font-mono focus:outline-none"/>
+          </div>
+        </div>
+        <div><div className="text-[12px] font-semibold text-ink-700 mb-1">备注（可选）</div>
+          <textarea value={note} onChange={e=>setNote(e.target.value)} placeholder="如：WSB 情绪、加密货币社区、宏观讨论" rows={3}
+            className="w-full px-3 py-2.5 rounded-xl border border-black/[0.07] bg-white text-[13px] focus:outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-100 transition resize-none"/>
+        </div>
+        <div className="rounded-xl border border-orange-100 bg-orange-50/50 p-3 flex items-start gap-2.5">
+          <MessageSquare size={16} className="text-orange-600 shrink-0 mt-0.5" />
+          <div className="text-[11.5px] text-orange-900 leading-relaxed">加入监控后，<b>任何持有采集器的人</b>浏览 <span className="font-mono">reddit.com/r/{sub || 'wallstreetbets'}</span> 社区页面≥3秒，就会自动把最新讨论/情绪/热度回填到看板首页 Reddit 独立模块。<b className="font-semibold">注意</b>：只监控<b>社区（Subreddit）</b>，不监控 Reddit 个人账号。清单外社区严格禁止入库（方案 A）。</div>
+        </div>
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <button onClick={onClose} className="h-10 px-4 rounded-xl border border-black/[0.07] bg-white hover:bg-black/[0.02] text-[13px] font-semibold text-ink-700 transition">取消</button>
+          <button onClick={submit} disabled={busy} className="h-10 px-4 rounded-xl bg-gradient-to-r from-orange-500 via-rose-500 to-red-500 hover:brightness-105 disabled:opacity-50 text-white text-[13px] font-semibold transition flex items-center gap-1.5 shadow-sm">{busy?<RefreshCw size={14} className="animate-spin"/> : <Plus size={14}/>} 添加到监控清单</button>
+        </div>
+      </div>
+    </ModalOverlay>
   );
 }
 
@@ -825,6 +1234,598 @@ const STAGGER = {
   hidden: {},
   show: { transition: { staggerChildren: 0.06, delayChildren: 0.02 } },
 };
+
+function frequencyPercentiles(valsArr) {
+  const vals = valsArr.filter((v) => v > 0).slice().sort((a, b) => a - b);
+  if (vals.length === 0) return [0, 0, 0, 0];
+  const p = (frac) => vals[Math.min(vals.length - 1, Math.max(0, Math.floor((vals.length - 1) * frac)))];
+  return [Math.max(1, p(0.25)), p(0.5), p(0.75), vals[vals.length - 1]];
+}
+function frequencyColorClass(v, percentiles) {
+  if (!v || v <= 0) return 'bg-white';
+  const [p25, p50, p75, p100] = percentiles;
+  if (p100 <= 0) return 'bg-[#1f2937]/10';
+  if (p25 >= p100 || p25 === p75) {
+    const ratio = v / p100;
+    if (ratio <= 0.25) return 'bg-[#86efac]';
+    if (ratio <= 0.5) return 'bg-[#4ade80]';
+    if (ratio <= 0.75) return 'bg-[#16a34a]';
+    return 'bg-[#14532d]';
+  }
+  if (v <= p25) return 'bg-[#86efac]';
+  if (v <= p50) return 'bg-[#4ade80]';
+  if (v <= p75) return 'bg-[#16a34a]';
+  return 'bg-[#14532d]';
+}
+function heatmapValueFor(dayEntry, enabledKeysSet) {
+  if (!dayEntry) return 0;
+  let v = 0;
+  const bp = dayEntry.by_platform || {};
+  enabledKeysSet.forEach((k) => { v += Number(bp[k] || 0); });
+  return v;
+}
+function hourlyValueFor(hourEntry, enabledKeysSet) {
+  if (!hourEntry) return 0;
+  let v = 0;
+  const bp = hourEntry.by_platform || {};
+  enabledKeysSet.forEach((k) => { v += Number(bp[k] || 0); });
+  return v;
+}
+
+function PostFrequencySection({ calendar }) {
+  const allPlatforms = Array.isArray(calendar?.platforms) ? calendar.platforms : [];
+  const daysArr = Array.isArray(calendar?.days) ? calendar.days : [];
+  const hourlyArr = Array.isArray(calendar?.hourly_distribution) ? calendar.hourly_distribution : [];
+  const [enabledKeys, setEnabledKeys] = useState(() => new Set(allPlatforms.map((p) => p.key)));
+
+  useEffect(() => {
+    setEnabledKeys((prev) => {
+      const next = new Set(prev);
+      allPlatforms.forEach((p) => next.add(p.key));
+      return next;
+    });
+  }, [allPlatforms.map((p) => p.key).join('|')]);
+
+  const today = useMemo(() => dayjs().endOf('day'), []);
+  const startDate = useMemo(() => today.subtract(364, 'day').startOf('day'), [today]);
+  const weeks = useMemo(() => {
+    const buckets = new Map(daysArr.map((d) => [d.date, d]));
+    const startDow = startDate.day();
+    const padFront = [];
+    for (let i = 0; i < startDow; i++) padFront.push(null);
+    const orderedDays = [...padFront];
+    let cur = startDate;
+    while (cur.isBefore(today) || cur.isSame(today, 'day')) {
+      const ds = cur.format('YYYY-MM-DD');
+      orderedDays.push(buckets.get(ds) || { date: ds, total: 0, by_platform: {} });
+      cur = cur.add(1, 'day');
+    }
+    // Ensure LAST week is always 7 entries so its height/width matches other columns (no more different-looking last column)
+    const w = [];
+    for (let i = 0; i < orderedDays.length; i += 7) {
+      const wk = orderedDays.slice(i, i + 7);
+      while (wk.length < 7) wk.push(null);
+      w.push(wk);
+    }
+    return w;
+  }, [daysArr, startDate, today]);
+
+  const totalValue = useMemo(
+    () => weeks.flat().filter(Boolean).reduce((a, d) => a + heatmapValueFor(d, enabledKeys), 0),
+    [weeks, enabledKeys],
+  );
+  const activeDays = useMemo(
+    () => weeks.flat().filter((d) => d && heatmapValueFor(d, enabledKeys) > 0).length,
+    [weeks, enabledKeys],
+  );
+  const totalHours = useMemo(
+    () => hourlyArr.reduce((a, h) => a + hourlyValueFor(hourlyArr[Number(h.hour)] || h, enabledKeys), 0),
+    [hourlyArr, enabledKeys],
+  );
+  const peakHour = useMemo(() => {
+    let best = -1; let bv = -1;
+    for (let h = 0; h < 24; h++) {
+      const v = hourlyValueFor(hourlyArr[h], enabledKeys);
+      if (v > bv) { bv = v; best = h; }
+    }
+    return { hour: best, value: bv };
+  }, [hourlyArr, enabledKeys]);
+
+  const togglePlat = useCallback((key) => setEnabledKeys((prev) => {
+    const n = new Set(prev);
+    if (n.has(key)) n.delete(key); else n.add(key);
+    return n;
+  }), []);
+  const selectAll = useCallback(() => setEnabledKeys(new Set(allPlatforms.map((p) => p.key))), [allPlatforms]);
+  const clearAll = useCallback(() => setEnabledKeys(new Set()), []);
+  const monthHeaders = useMemo(() => {
+    const out = [];
+    let lastMonth = -1;
+    weeks.forEach((week, wi) => {
+      const firstNonNull = week.find(Boolean);
+      if (!firstNonNull) return;
+      const m = Number(firstNonNull.date.slice(5, 7));
+      if (m !== lastMonth) {
+        const names = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+        out.push({ wi, label: names[m - 1] });
+        lastMonth = m;
+      }
+    });
+    return out;
+  }, [weeks]);
+  const lastDay = today;
+  const firstDay = startDate;
+
+  return (
+    <motion.div variants={FADE_UP} initial="hidden" whileInView="show" viewport={{ once: true, amount: 0.1 }} className="mb-6">
+      <div className="rounded-2xl border border-black/[0.04] bg-white shadow-card p-5 overflow-hidden">
+        {/* Header row: Purple Title + Stats (left)  +  Filters split 2 rows (FULL WIDTH): row1 = all/clear/legend; row2 = platform chips FULL WIDTH */}
+        <div className="flex flex-col gap-4 mb-6">
+          {/* Row A: Left = Purple icon + Title + Stats, Right = all/clear + Less-More */}
+          <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-4">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#4263EB] to-[#6366f1] flex items-center justify-center shrink-0 shadow-sm">
+                <Activity size={16} className="text-white" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-[15.5px] font-semibold tracking-tight text-ink-900">内容发布总体统计</h2>
+                  <span className="text-[11px] text-ink-400 bg-ink-50 rounded-full px-2 py-0.5">
+                    {activeDays} 天活跃 / {weeks.flat().filter(Boolean).length} 天
+                  </span>
+                </div>
+                <div className="mt-1 text-[12px] text-ink-500 flex items-center gap-2 flex-wrap">
+                  <span>{firstDay.format('YYYY/MM/DD')} → {lastDay.format('YYYY/MM/DD')}</span>
+                  <span className="text-ink-300">·</span>
+                  <span>365 天总频率 <b className="text-ink-800 tabular-nums">{formatShort(totalValue)}</b></span>
+                  <span className="text-ink-300">·</span>
+                  <span>
+                    峰值时段 <b className="text-ink-800 tabular-nums">{String(peakHour.hour).padStart(2, '0')}:00</b>
+                    {peakHour.value > 0 && <span className="text-ink-400 ml-1">（{formatShort(peakHour.value)}）</span>}
+                  </span>
+                  {totalHours > 0 && totalHours !== totalValue && (
+                    <>
+                      <span className="text-ink-300">·</span>
+                      <span>近 365 天 24h 总计 <b className="text-ink-800 tabular-nums">{formatShort(totalHours)}</b></span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+            {/* Row A Right: 全部 / 清空 / Less-More legend */}
+            <div className="flex flex-wrap items-center gap-2">
+              {allPlatforms.length > 0 && (
+                <>
+                  <button onClick={selectAll} className="h-[25.5px] px-2 rounded-lg border border-ink-200 bg-white hover:bg-ink-50 text-[11px] font-semibold text-ink-700">全部</button>
+                  <button onClick={clearAll} className="h-[25.5px] px-2 rounded-lg border border-ink-200 bg-white hover:bg-ink-50 text-[11px] font-semibold text-ink-500">清空</button>
+                  <div className="w-px h-4 bg-ink-200 mx-0.5" />
+                </>
+              )}
+              <div className="flex items-center gap-1 text-[10.5px] text-ink-500">
+                <span className="font-semibold">Less</span>
+                <span className="w-3 h-3 rounded-sm bg-[#1f2937]/10 ring-1 ring-black/5" />
+                <span className="w-3 h-3 rounded-sm bg-[#86efac]" />
+                <span className="w-3 h-3 rounded-sm bg-[#4ade80]" />
+                <span className="w-3 h-3 rounded-sm bg-[#16a34a]" />
+                <span className="w-3 h-3 rounded-sm bg-[#14532d]" />
+                <span className="font-semibold">More</span>
+              </div>
+            </div>
+          </div>
+          {/* Row B: Platform chips — Grid 9 cols × 2 rows (18 total exactly) so never 1 row or 3 rows */}
+          <div className="grid grid-cols-9 w-full gap-2">
+            {allPlatforms.map((p) => {
+              const checked = enabledKeys.has(p.key);
+              return (
+                <label
+                  key={p.key}
+                  className={
+                    'inline-flex items-center justify-center gap-1.5 h-[27px] px-2 rounded-[7px] border cursor-pointer select-none transition ' +
+                    (checked
+                      ? 'border-emerald-400/60 bg-emerald-50/70 text-emerald-800 shadow-[0_0_0_2px_rgba(16,185,129,0.08)]'
+                      : 'border-ink-200 bg-white text-ink-500 hover:bg-ink-50 opacity-80')
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    className="w-3.5 h-3.5 accent-emerald-600 shrink-0"
+                    checked={checked}
+                    onChange={() => togglePlat(p.key)}
+                  />
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: checked ? p.color : '#cbd5e1' }} />
+                  <span className="text-[11.5px] font-medium whitespace-nowrap leading-none truncate">{p.name}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Content grid: EQUAL WIDTH 2-cols at lg+ — both columns same size, symmetrical cards */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 xl:gap-7 items-stretch">
+          {/* LEFT — 52 week heatmap card (inside: title + heatmap + stats) */}
+          <div className="rounded-2xl border border-emerald-100/70 bg-gradient-to-br from-white via-[#F0FDF4]/20 to-[#ECFDF5]/30 p-4 flex flex-col">
+            <HeatmapOnly
+              weeks={weeks}
+              monthHeaders={monthHeaders}
+              enabledKeys={enabledKeys}
+            />
+          </div>
+          {/* RIGHT — Activity Periods 24h card (inside: title + curve + KPIs) */}
+          <div className="rounded-2xl border border-emerald-100/70 bg-gradient-to-br from-white via-[#ECFDF5]/30 to-[#F0FDF4]/20 p-4 flex flex-col">
+            <ActivityPeriods24h
+              hourlyArr={hourlyArr}
+              enabledKeys={enabledKeys}
+            />
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function HeatmapOnly({ weeks, monthHeaders, enabledKeys }) {
+  const percentiles = useMemo(() => {
+    const vals = weeks.flat().filter(Boolean).map((d) => heatmapValueFor(d, enabledKeys));
+    return frequencyPercentiles(vals);
+  }, [weeks, enabledKeys]);
+  const GAP = 1;
+  const WEEKS_N = weeks.length || 53;
+  // Vertical rectangle: WIDTH auto-fills (narrow), HEIGHT fixed 22px (taller than width).
+  // → Tall vertical cells hug together in 7 stacked rows, no scattered blank space.
+  const CELL_H = 22;
+  // Cell width = (100% minus all horizontal gaps) divided evenly across N week columns.
+  const CELL_W = `calc((100% - ${(WEEKS_N - 1) * GAP}px) / ${WEEKS_N})`;
+  const MONTH_LEFT_BASE = 24; // pl-6 == 24px
+  const FLAT_DAYS = useMemo(() => weeks.flat().filter(Boolean), [weeks]);
+  const last7Stats = useMemo(() => {
+    const n = Math.min(FLAT_DAYS.length, 7);
+    const recent = FLAT_DAYS.slice(-n);
+    const prev = FLAT_DAYS.slice(Math.max(0, FLAT_DAYS.length - 2 * n), FLAT_DAYS.length - n);
+    const rSum = recent.reduce((a, d) => a + heatmapValueFor(d, enabledKeys), 0);
+    const pSum = prev.reduce((a, d) => a + heatmapValueFor(d, enabledKeys), 0) || 1;
+    const pct = ((rSum - pSum) / pSum) * 100;
+    const max = recent.reduce((m, d) => Math.max(m, heatmapValueFor(d, enabledKeys)), 0);
+    const maxD = recent.find((d) => heatmapValueFor(d, enabledKeys) === max);
+    return { sum: rSum, pct, max: { date: maxD?.date ?? '-', value: max } };
+  }, [FLAT_DAYS, enabledKeys]);
+  // Streaks: current consecutive active days (from today backwards) + longest silent (all-zero) run in 365d
+  const streakStats = useMemo(() => {
+    const ordered = weeks.flat();
+    const tail = [...ordered].reverse();
+    let cur = 0;
+    for (const d of tail) {
+      if (d && heatmapValueFor(d, enabledKeys) > 0) cur++;
+      else break;
+    }
+    let maxSilent = 0, run = 0;
+    for (const d of ordered) {
+      if (!d || heatmapValueFor(d, enabledKeys) <= 0) { run++; if (run > maxSilent) maxSilent = run; }
+      else run = 0;
+    }
+    return { currentActive: cur, longestSilent: maxSilent };
+  }, [weeks, enabledKeys]);
+  return (
+    <div className="flex flex-col gap-4 h-full w-full min-w-0">
+      <div className="text-[13px] text-ink-600 font-semibold flex items-center gap-2 shrink-0">
+        <span className="inline-block w-2 h-2 rounded-full bg-[#16a34a]" />
+        按日发布频率 · 52 周 × 7 日
+      </div>
+      {/* Compact rectangle cells — width fills 100%, height small → horizontal rects with no scattered blank space */}
+      <div className="w-full min-w-0 flex-1 min-h-[200px] flex items-start justify-center">
+        <div className="w-full max-w-full flex flex-col">
+          {/* Month headers row */}
+          <div className="flex pl-6 mb-1.5 relative h-4 leading-4 shrink-0">
+            {monthHeaders.map((mh, i) => {
+              const leftPct = (mh.wi / WEEKS_N) * 100;
+              return (
+                <div
+                  key={i}
+                  className="absolute text-[10.5px] text-ink-500 font-semibold tracking-tight"
+                  style={{ left: `calc(${MONTH_LEFT_BASE}px + ${leftPct}% )` }}
+                >
+                  {mh.label}
+                </div>
+              );
+            })}
+          </div>
+          {/* Main body: weekday label column + weeks grid. Compact top-aligned so rows hug together */}
+          <div className="flex gap-2 w-full min-w-0 items-start">
+            <div className="flex flex-col pt-0 text-[10px] text-ink-500 font-medium w-4 shrink-0" style={{ gap: `${GAP}px`, lineHeight: `${CELL_H}px` }}>
+              <div style={{ height: `${CELL_H}px` }}>一</div>
+              <div style={{ height: `${CELL_H}px` }}></div>
+              <div style={{ height: `${CELL_H}px` }}>三</div>
+              <div style={{ height: `${CELL_H}px` }}></div>
+              <div style={{ height: `${CELL_H}px` }}>五</div>
+              <div style={{ height: `${CELL_H}px` }}></div>
+              <div style={{ height: `${CELL_H}px` }}></div>
+            </div>
+            <div className={`flex flex-1 items-start`} style={{ gap: `${GAP}px` }}>
+              {weeks.map((week, wi) => (
+                <div
+                  key={wi}
+                  className="flex flex-col items-start"
+                  style={{ gap: `${GAP}px`, width: CELL_W, minWidth: 0 }}
+                >
+                  {Array.from({ length: 7 }).map((_, ri) => {
+                    const d = week[ri] || null;
+                    const v = heatmapValueFor(d, enabledKeys);
+                    const cls = frequencyColorClass(v, percentiles);
+                    const hasData = v > 0;
+                    return (
+                      <div
+                        key={ri}
+                        className={`w-full rounded-[2px] ring-1 ring-black/[0.04] ${cls} ${hasData ? 'hover:ring-emerald-500/50 hover:scale-[1.20] transition-transform origin-center z-10 relative' : ''}`}
+                        style={{ height: `${CELL_H}px` }}
+                        title={d ? `${d.date} · 发布频率 ${v}` : ''}
+                      />
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+      {/* Stats strip */}
+      <div className="grid grid-cols-3 gap-2.5 shrink-0 pt-0.5">
+        <div className="rounded-xl border border-black/[0.04] bg-gradient-to-br from-emerald-50/80 to-emerald-50/30 px-3 py-2.5">
+          <div className="text-[10.5px] text-emerald-700/80 font-medium">最近 7 天</div>
+          <div className="mt-0.5 text-[16px] font-bold text-emerald-800 tabular-nums leading-tight">
+            {formatShort(last7Stats.sum)}
+            <span className="ml-1 text-[10.5px] font-semibold text-emerald-600/80 align-super">
+              {last7Stats.pct >= 0 ? `↑ ${last7Stats.pct.toFixed(0)}%` : `↓ ${(-last7Stats.pct).toFixed(0)}%`}
+            </span>
+          </div>
+          <div className="text-[10.5px] text-emerald-700/60 mt-0.5">vs 前 7 天</div>
+        </div>
+        <div className="rounded-xl border border-black/[0.04] bg-gradient-to-br from-[#EEF2FF]/90 to-[#EEF2FF]/30 px-3 py-2.5">
+          <div className="text-[10.5px] text-indigo-700/80 font-medium">单日峰值</div>
+          <div className="mt-0.5 text-[16px] font-bold text-indigo-800 tabular-nums leading-tight">
+            {formatShort(last7Stats.max.value)}
+          </div>
+          <div className="text-[10.5px] text-indigo-700/60 mt-0.5 truncate">{last7Stats.max.date}</div>
+        </div>
+        <div className="rounded-xl border border-black/[0.04] bg-gradient-to-br from-[#EAF6FF]/90 to-[#EAF6FF]/30 px-3 py-2.5">
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-[10.5px] text-sky-700/80 font-medium">连续活跃</div>
+            <div className="text-[10.5px] text-sky-500/70 font-medium">最长静默</div>
+          </div>
+          <div className="flex items-center justify-between leading-none">
+            <div className="text-[16px] font-bold text-sky-800 tabular-nums">
+              {streakStats.currentActive}<span className="ml-0.5 text-[10.5px] font-semibold text-sky-600/70">天</span>
+            </div>
+            <div className="text-[10.5px] text-sky-600/60 font-medium">vs 365 天</div>
+            <div className="text-[16px] font-bold text-slate-500 tabular-nums">
+              {streakStats.longestSilent}<span className="ml-0.5 text-[10.5px] font-semibold text-slate-500/80">天</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ActivityPeriods24h({ hourlyArr, enabledKeys }) {
+  const valuesByHour = useMemo(() => {
+    const map = new Map();
+    for (let h = 0; h < 24; h++) {
+      const v = hourlyValueFor(hourlyArr[h], enabledKeys);
+      map.set(h, v);
+    }
+    return map;
+  }, [hourlyArr, enabledKeys]);
+  const allValues = Array.from(valuesByHour.values());
+  const maxV = Math.max(1, ...allValues);
+  const anchors = useMemo(() => {
+    const seq = [];
+    const order = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4, 5, 6];
+    const spacingPct = 100 / (order.length - 1);
+    order.forEach((h, i) => {
+      const xPct = i * spacingPct;
+      const v = valuesByHour.get(h) || 0;
+      seq.push({ hour: h, xPct, value: v });
+    });
+    return seq;
+  }, [valuesByHour]);
+  const peakMeta = useMemo(() => {
+    let pk = -1, pv = -1, qk = -1, qv = Infinity;
+    for (let h = 0; h < 24; h++) {
+      const v = valuesByHour.get(h) || 0;
+      if (v > pv) { pv = v; pk = h; }
+      if (v < qv) { qv = v; qk = h; }
+    }
+    const day = Array.from({ length: 12 }, (_, i) => i + 6).reduce((s, h) => s + (valuesByHour.get(h) || 0), 0);
+    const night = allValues.reduce((a, b) => a + b, 0) - day;
+    return { pk, pv, qk, qv, day, night, total: allValues.reduce((a, b) => a + b, 0) };
+  }, [valuesByHour, allValues]);
+
+  const bubbleSizeFor = (v) => {
+    if (!v || v <= 0) return 10;
+    const ratio = v / maxV;
+    if (ratio < 0.25) return 14;
+    if (ratio < 0.6) return 22;
+    if (ratio < 0.9) return 30;
+    return 38;
+  };
+  const bubbleFillFor = (v) => {
+    if (!v || v <= 0) return 'bg-white ring-1 ring-emerald-200';
+    const ratio = v / maxV;
+    if (ratio < 0.25) return 'bg-[#86efac] border border-white shadow-sm';
+    if (ratio < 0.6) return 'bg-[#4ade80] border border-white shadow-[0_2px_8px_-2px_rgba(16,185,129,0.45)]';
+    if (ratio < 0.9) return 'bg-[#16a34a] border border-white shadow-[0_4px_14px_-2px_rgba(22,163,74,0.55)]';
+    return 'bg-[#14532d] border border-white shadow-[0_6px_20px_-3px_rgba(20,83,45,0.6)]';
+  };
+  const showXLabels = [6, 9, 12, 15, 18, 21, 0];
+  return (
+    <div className="flex flex-col gap-4 h-full w-full min-w-0">
+      <div className="text-[13px] text-ink-600 font-semibold flex items-center gap-2">
+        <span className="inline-block w-2 h-2 rounded-full bg-[#16a34a]" />
+        发布时间活跃分布 · 24 小时周期
+        <span className="text-[10.5px] text-ink-400 font-normal">（06:00 → 次日 06:00）</span>
+      </div>
+      <div className="relative flex-1 px-1 py-2 min-h-[210px]">
+        {/* Horizontal reference band 06-18 subtle green tint (06 is anchor index 0 → 4% left margin; 18 is index 12 → 12/24 = 50% → right = 50%) */}
+        <div className="absolute inset-y-0 left-[4%] right-[50%] pointer-events-none bg-gradient-to-b from-[#D1FAE5]/55 via-[#D1FAE5]/22 to-transparent rounded-r-2xl" />
+
+        {/* SVG curved line + soft area — pointer-events:none so HTML bubble hitboxes above always catch hover */}
+        <div className="relative h-[190px]">
+          <svg viewBox="0 0 100 95" preserveAspectRatio="none" className="absolute inset-0 w-full h-full overflow-visible pointer-events-none">
+            <defs>
+              <linearGradient id="act24hArea" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stopColor="#10B981" stopOpacity="0.26" />
+                <stop offset="100%" stopColor="#10B981" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            {/* Reference gridlines */}
+            <g stroke="#BBF7D0" strokeDasharray="1 2" strokeWidth="0.42">
+              <line x1="0" y1="76" x2="100" y2="76" />
+              <line x1="0" y1="52" x2="100" y2="52" />
+              <line x1="0" y1="28" x2="100" y2="28" />
+            </g>
+            {/* Zero baseline */}
+            <line x1="0" y1="84" x2="100" y2="84" stroke="#A7F3D0" strokeWidth="0.5" strokeDasharray="2 2" />
+            {/* Area */}
+            <path
+              d={(() => {
+                const pts = anchors.map((a) => {
+                  const ratio = Math.min(1, a.value / maxV);
+                  const y = 78 - ratio * 64;
+                  return { x: a.xPct, y };
+                });
+                if (!pts.length) return '';
+                const first = pts[0], last = pts[pts.length - 1];
+                let d = `M ${first.x} 86 L ${first.x} ${first.y}`;
+                for (let i = 1; i < pts.length; i++) {
+                  const p = pts[i], pr = pts[i - 1];
+                  const cx1 = pr.x + (p.x - pr.x) * 0.5;
+                  const cx2 = pr.x + (p.x - pr.x) * 0.5;
+                  d += ` C ${cx1} ${pr.y}, ${cx2} ${p.y}, ${p.x} ${p.y}`;
+                }
+                d += ` L ${last.x} 86 Z`;
+                return d;
+              })()}
+              fill="url(#act24hArea)"
+            />
+            {/* Line */}
+            <path
+              d={(() => {
+                const pts = anchors.map((a) => {
+                  const ratio = Math.min(1, a.value / maxV);
+                  const y = 78 - ratio * 64;
+                  return { x: a.xPct, y };
+                });
+                if (!pts.length) return '';
+                let d = `M ${pts[0].x} ${pts[0].y}`;
+                for (let i = 1; i < pts.length; i++) {
+                  const p = pts[i], pr = pts[i - 1];
+                  const cx1 = pr.x + (p.x - pr.x) * 0.5;
+                  const cx2 = pr.x + (p.x - pr.x) * 0.5;
+                  d += ` C ${cx1} ${pr.y}, ${cx2} ${p.y}, ${p.x} ${p.y}`;
+                }
+                return d;
+              })()}
+              fill="none"
+              stroke="#047857"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+
+          {/* Bubbles — 28x28 transparent hitbox per anchor so hover is reliable even on tiny 10px dots */}
+          <div className="absolute inset-0 pointer-events-none">
+            {anchors.map((a, idx) => {
+              const ratio = Math.min(1, a.value / maxV);
+              const size = bubbleSizeFor(a.value);
+              const yBottom = 4 + ratio * 80;
+              const fillCls = bubbleFillFor(a.value);
+              const isPeak = a.hour === peakMeta.pk && a.value > 0 && a.value === peakMeta.pv;
+              return (
+                <div
+                  key={idx}
+                  className="absolute -translate-x-1/2 pointer-events-auto cursor-help"
+                  style={{
+                    left: `${a.xPct}%`,
+                    bottom: `${yBottom}%`,
+                    width: '28px',
+                    height: '28px',
+                  }}
+                  title={`${String(a.hour).padStart(2,'0')}:00 · 发布频率 ${a.value}`}
+                >
+                  <div
+                    className={`absolute rounded-full flex items-center justify-center ${fillCls} ${isPeak ? 'ring-2 ring-emerald-400/60 ring-offset-1 ring-offset-white' : ''}`}
+                    style={{
+                      width: `${size}px`,
+                      height: `${size}px`,
+                      left: '50%',
+                      bottom: 0,
+                      transform: 'translateX(-50%)',
+                    }}
+                  >
+                    {a.value > 0 && size >= 22 && (
+                      <span className="text-[10px] font-bold tabular-nums text-white leading-none" style={{ textShadow: '0 1px 2px rgba(6,78,59,0.6)' }}>
+                        {a.value >= 1000 ? `${(a.value/1000).toFixed(1)}k` : a.value >= 100 ? a.value : ''}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* X axis labels + tick lines */}
+        <div className="relative h-6">
+          {anchors
+            .filter((a, i, arr) => showXLabels.includes(a.hour) && (a.hour !== 6 || i > arr.length / 2))
+            .map((a, i) => {
+              const label = a.hour === 0 ? '24:00' : `${String(a.hour).padStart(2,'0')}:00`;
+              return (
+                <div key={i} className="absolute" style={{ left: `${a.xPct}%`, top: 0 }}>
+                  <div className="relative">
+                    <div className="w-px h-2 bg-emerald-200/80 mx-auto" />
+                    <div className="absolute -translate-x-1/2 top-2 text-[11px] font-semibold text-emerald-800/80 tabular-nums whitespace-nowrap">
+                      {label}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+        </div>
+      </div>
+
+      {/* Bottom KPI row — mt-auto pins to card bottom, symmetrical with left column */}
+      <div className="grid grid-cols-3 gap-2.5 mt-auto pt-0.5">
+        <div className="rounded-xl border border-black/[0.04] bg-gradient-to-br from-[#ECFDF5] to-white px-3 py-2.5">
+          <div className="text-[10.5px] text-emerald-700/80 font-medium">白天 06–18</div>
+          <div className="mt-0.5 text-[15px] font-bold text-emerald-800 tabular-nums leading-tight">
+            {formatShort(peakMeta.day)}
+          </div>
+          <div className="text-[10px] text-emerald-700/60 mt-0.5">
+            {peakMeta.total > 0 ? `占比 ${((peakMeta.day / peakMeta.total) * 100).toFixed(0)}%` : '—'}
+          </div>
+        </div>
+        <div className="rounded-xl border border-black/[0.04] bg-gradient-to-br from-[#F0FDF4] to-white px-3 py-2.5">
+          <div className="text-[10.5px] text-emerald-700/80 font-medium">峰值时段</div>
+          <div className="mt-0.5 text-[15px] font-bold text-emerald-800 tabular-nums leading-tight">
+            {String(peakMeta.pk).padStart(2,'0')}:00
+            {peakMeta.pv > 0 && <span className="ml-1 text-[11px] font-semibold text-emerald-600/80">{formatShort(peakMeta.pv)}</span>}
+          </div>
+          <div className="text-[10px] text-emerald-700/60 mt-0.5">当日最活跃</div>
+        </div>
+        <div className="rounded-xl border border-black/[0.04] bg-gradient-to-br from-[#F0FDFA] to-white px-3 py-2.5">
+          <div className="text-[10.5px] text-teal-800/80 font-medium">夜间 18–06</div>
+          <div className="mt-0.5 text-[15px] font-bold text-teal-800 tabular-nums leading-tight">
+            {formatShort(peakMeta.night)}
+          </div>
+          <div className="text-[10px] text-teal-800/60 mt-0.5">
+            {peakMeta.total > 0 ? `占比 ${((peakMeta.night / peakMeta.total) * 100).toFixed(0)}% · 低谷 ${String(peakMeta.qk).padStart(2,'0')}:00` : '—'}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function parseNumericValue(input) {
   if (input == null) return { value: 0, suffix: '', prefix: '', unit: '', percent: false, negative: false };
@@ -995,84 +1996,6 @@ GranularityChip = React.memo(GranularityChip);
 
 function useRealtimeTicker(data, setData, enabled, setFlashRecords, setFlashIds) {
   useEffect(() => {
-    if (!enabled || !data?.latestRecords || !data.latestRecords.length) return;
-    let cancelled = false;
-    const timerRef = { current: 0 };
-    function schedule() {
-      if (cancelled) return;
-      const delay = 15000 + Math.random() * 10000;
-      timerRef.current = setTimeout(() => {
-        if (cancelled) return;
-        setData(prev => {
-          if (!prev?.latestRecords || !prev.latestRecords.length) return prev;
-          const recordCount = Math.random() > 0.4 ? 2 : 1;
-          const indices = new Set();
-          const pool = prev.latestRecords.length;
-          let tries = 0;
-          while (indices.size < recordCount && tries < 20) {
-            indices.add(Math.floor(Math.random() * pool));
-            tries += 1;
-          }
-          const newRecords = prev.latestRecords.slice();
-          const newFlashRecords = new Set();
-          const newFlashPosts = new Set();
-          let actuallyChanged = false;
-          indices.forEach(idx => {
-            const original = newRecords[idx];
-            const r = { ...original };
-            const fieldPick = Math.random();
-            if (r.entity_type === 'COMMUNITY') {
-              if (fieldPick < 0.45) {
-                const delta = Math.floor(10 + Math.random() * 140);
-                r.online = (r.online || 0) + delta;
-                r.message_volume_24h = (r.message_volume_24h || r.posts_24h || 0) + Math.floor(delta / 5);
-              } else if (fieldPick < 0.8) {
-                const delta = Math.floor(20 + Math.random() * 800);
-                r.members = (r.members || 0) + delta;
-                r.online_ratio = r.members > 0 ? (r.online || 0) / r.members : 0;
-              } else {
-                r.posts_24h = (r.posts_24h || 0) + (Math.random() > 0.5 ? 1 : 0);
-              }
-            } else {
-              if (fieldPick < 0.45) {
-                const delta = Math.floor(12 + Math.random() * 150);
-                r.views = (r.views || 0) + delta;
-              } else if (fieldPick < 0.8) {
-                const delta = Math.floor(1 + Math.random() * 25);
-                r.likes = (r.likes || 0) + delta;
-              } else {
-                const delta = Math.floor(10 + Math.random() * 200);
-                r.followers = (r.followers || 0) + delta;
-              }
-              if (r.posts && r.posts.length > 0) {
-                const postIdx = Math.floor(Math.random() * Math.min(3, r.posts.length));
-                const rp = { ...r.posts[postIdx] };
-                const postDelta = Math.floor(5 + Math.random() * 120);
-                rp.views = (rp.views || 0) + postDelta;
-                if (Math.random() > 0.5) rp.likes = (rp.likes || 0) + Math.floor(1 + Math.random() * 15);
-                rp.engagement_rate = rp.views > 0 ? Math.max(0.05, (((rp.likes || 0) + (rp.comments || 0) + (rp.shares || 0)) / rp.views) * 100) : rp.engagement_rate;
-                const np = r.posts.slice();
-                np[postIdx] = rp;
-                r.posts = np;
-                if (rp.id) newFlashPosts.add(rp.id);
-              }
-            }
-            if (!deepEqual(r, original)) {
-              actuallyChanged = true;
-              newRecords[idx] = r;
-              newFlashRecords.add(r.account);
-            }
-          });
-          if (!actuallyChanged) return prev;
-          if (setFlashRecords && newFlashRecords.size > 0) setFlashRecords(newFlashRecords);
-          if (setFlashIds && newFlashPosts.size > 0) setFlashIds(newFlashPosts);
-          return { ...prev, latestRecords: newRecords };
-        });
-        schedule();
-      }, delay);
-    }
-    schedule();
-    return () => { cancelled = true; clearTimeout(timerRef.current); };
   }, [enabled, data?.latestRecords?.length, setData, setFlashRecords, setFlashIds]);
 }
 
@@ -1297,7 +2220,7 @@ let SelectChip = function SelectChip({ value, options, onChange, placeholder = '
 };
 SelectChip = React.memo(SelectChip);
 
-function ProfileView({ onBack, currentUser, showToast }) {
+function ProfileView({ onBack, currentUser, showToast, onUpdateCurrentUser }) {
   const [loading, setLoading] = useState(true);
   const [me, setMe] = useState(null);
   const [displayName, setDisplayName] = useState('');
@@ -1375,6 +2298,14 @@ function ProfileView({ onBack, currentUser, showToast }) {
       if (r?.ok !== false) {
         showToast('已保存个人资料', 'success');
         try { await initAuth(); } catch {}
+        onUpdateCurrentUser?.(prev => ({
+          ...(prev || {}),
+          display_name: patch.display_name,
+          displayName: patch.display_name,
+          email: patch.email,
+          avatar_gradient: patch.avatar_gradient,
+          avatar_data_url: patch.avatar_data_url,
+        }));
         load();
       } else {
         showToast?.('保存失败：' + ((r?.detail) || r?.message || r?.error || '未知错误'), 'error');
@@ -1668,219 +2599,221 @@ function ProfileView({ onBack, currentUser, showToast }) {
               )}
             </div>
 
-            <div id="collector-tokens-section" data-collector-section="1" className="rounded-3xl border border-black/[0.05] bg-white p-5 shadow-sm">
-              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-                <div>
-                  <div className="text-[11px] font-bold text-ink-500 uppercase tracking-wider flex items-center gap-1.5"><KeyRound size={12} className="text-indigo-600" />采集器授权 Token</div>
-                  <div className="text-[11px] text-ink-400 mt-0.5">
-                    {currentUser?.role === 'admin'
-                      ? '每个 Chrome 插件 / Python 脚本对应一个独立 Token，可分配给不同运营人；吊销后该设备立即被拒绝上报'
-                      : '每个 Chrome 插件 / Python 脚本对应一个独立 Token；如需新增请联系管理员为您分配，吊销后该设备立即被拒绝上报'}
-                  </div>
-                </div>
-                {currentUser?.role === 'admin' ? (
-                  <button
-                    onClick={() => { setGenLabel(''); setGenDays('365'); setGenOperatorUid(currentUser?.operator_uid || ''); setShowGenToken(true); }}
-                    className="h-9 px-3.5 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 hover:brightness-110 text-white text-[12.5px] font-semibold inline-flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0"
-                  ><PlusCircle size={13} />生成新 Token</button>
-                ) : (
-                  <div title="仅管理员可创建和分配采集器 Token"
-                    className="h-9 px-3.5 rounded-xl bg-slate-100 text-slate-400 border border-black/[0.04] text-[12px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-not-allowed">
-                    <ShieldOff size={13} /> 请联系管理员分配
-                  </div>
-                )}
-              </div>
-
-              {!currentUser && (
-                <div className="mb-3 rounded-2xl border border-amber-200/70 bg-gradient-to-r from-amber-50 via-yellow-50/50 to-orange-50/40 p-3 flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0 shadow-sm mt-0.5">
-                    <AlertTriangle size={13} className="text-white" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[12.5px] font-bold text-amber-900 mb-0.5">请先登录后生成采集器 Token</div>
-                    <div className="text-[11px] text-amber-700/90 leading-snug">默认管理员账号：<span className="font-mono bg-amber-100/80 px-1.5 py-0.5 rounded border border-amber-200/60">admin</span> / 密码：<span className="font-mono bg-amber-100/80 px-1.5 py-0.5 rounded border border-amber-200/60">admin123</span>。登录后即可在此页面生成采集器授权 Token，并查看握手码、在线终端数、今日采集汇总等信息。Chrome 插件下载：顶部「下载」按钮 → 采集插件 (ZIP)。</div>
-                  </div>
-                </div>
-              )}
-
-              {currentUser?.role === 'admin' && siteOverview?.site && (
-                <div className="mb-3 rounded-2xl border border-indigo-200/60 bg-gradient-to-r from-indigo-50 via-violet-50/50 to-white p-3 flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center ring-2 ring-white shadow-sm shrink-0">
-                      <Globe2 size={13} className="text-white" />
+            {false && (
+              <div id="collector-tokens-section" data-collector-section="1" className="rounded-3xl border border-black/[0.05] bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <div>
+                    <div className="text-[11px] font-bold text-ink-500 uppercase tracking-wider flex items-center gap-1.5"><KeyRound size={12} className="text-indigo-600" />采集器授权 Token</div>
+                    <div className="text-[11px] text-ink-400 mt-0.5">
+                      {currentUser?.role === 'admin'
+                        ? '每个 Chrome 插件 / Python 脚本对应一个独立 Token，可分配给不同运营人；吊销后该设备立即被拒绝上报'
+                        : '每个 Chrome 插件 / Python 脚本对应一个独立 Token；如需新增请联系管理员为您分配，吊销后该设备立即被拒绝上报'}
                     </div>
-                    <div className="min-w-0">
-                      <div className="text-[12.5px] font-bold text-ink-900 truncate">本站：{siteOverview.site.site_name || '未命名站点'}</div>
-                      <div className="text-[10.5px] text-ink-500 mt-0.5 font-mono truncate">
-                        站点 ID: {String(siteOverview.site.site_id || '').slice(0, 12)}…
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    <div className="px-2.5 py-1 rounded-xl bg-white border border-indigo-200/60 shadow-sm">
-                      <div className="text-[9px] font-bold uppercase tracking-wider text-indigo-500 leading-none mb-0.5">🤝 握手码</div>
-                      <div className="font-mono font-bold text-[13px] text-ink-900 tracking-wide">{siteOverview.site.handshake_code || '—'}</div>
-                    </div>
-                    <div className="px-2.5 py-1 rounded-xl bg-white border border-black/[0.05] shadow-sm">
-                      <div className="text-[9px] font-bold uppercase tracking-wider text-ink-400 leading-none mb-0.5">💻 在线终端</div>
-                      <div className="font-bold text-[13px] text-ink-900 tabular-nums">{Number(siteOverview.machines_online || 0)}<span className="text-[10px] text-ink-400 font-semibold ml-0.5">/ {Number(siteOverview.machines_total || 0)}</span></div>
-                    </div>
-                    <div className="px-2.5 py-1 rounded-xl bg-emerald-50 border border-emerald-200/60 shadow-sm">
-                      <div className="text-[9px] font-bold uppercase tracking-wider text-emerald-600 leading-none mb-0.5">📊 今日采集</div>
-                      <div className="font-bold text-[13px] text-ink-900 tabular-nums">{Number(siteOverview.today_records || 0).toLocaleString()}</div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {loading && tokens.length === 0 && (
-                <div className="py-10 text-center text-ink-400 text-sm rounded-2xl border border-dashed border-black/[0.06] bg-white/60">
-                  <RefreshCw size={18} className="inline-block animate-spin mb-1" /><br />正在加载 Token 列表…
-                </div>
-              )}
-              {!loading && tokens.length === 0 && (
-                <div className="py-10 text-center rounded-2xl border border-dashed border-indigo-200/70 bg-gradient-to-br from-indigo-50/60 via-white to-violet-50/40">
-                  <div className="w-14 h-14 rounded-3xl mx-auto flex items-center justify-center bg-gradient-to-br from-indigo-500 to-violet-600 shadow-[0_10px_24px_rgba(99,102,241,0.28)] ring-4 ring-white mb-3">
-                    <KeyRound size={24} className="text-white" />
-                  </div>
-                  <div className="text-[14px] font-bold text-ink-900 mb-1">暂无采集器 Token</div>
-                  <div className="text-[11.5px] text-ink-500 mb-3">
-                    {currentUser?.role === 'admin'
-                      ? '为您自己或其他运营人生成 Token 后，下发给对应人员粘贴到 Chrome 插件或 Python 脚本，即可与身份绑定，其他人无法冒用'
-                      : '采集器 Token 需由管理员统一分配，请联系管理员为您开通，开通后会出现在此处，您无需手动创建'}
                   </div>
                   {currentUser?.role === 'admin' ? (
                     <button
                       onClick={() => { setGenLabel(''); setGenDays('365'); setGenOperatorUid(currentUser?.operator_uid || ''); setShowGenToken(true); }}
-                      className="h-9 px-4 rounded-xl bg-white text-indigo-700 text-[12.5px] font-semibold border border-indigo-200/70 hover:bg-indigo-50 shadow-sm inline-flex items-center gap-1.5"
-                    ><PlusCircle size={13} />生成第一个 Token</button>
+                      className="h-9 px-3.5 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 hover:brightness-110 text-white text-[12.5px] font-semibold inline-flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0"
+                    ><PlusCircle size={13} />生成新 Token</button>
                   ) : (
-                    <div className="inline-flex items-center gap-2 h-9 px-4 rounded-xl bg-white text-ink-400 text-[12px] font-semibold border border-black/[0.06] shadow-sm">
-                      <ShieldOff size={13} />
-                      请联系管理员分配采集器 Token
+                    <div title="仅管理员可创建和分配采集器 Token"
+                      className="h-9 px-3.5 rounded-xl bg-slate-100 text-slate-400 border border-black/[0.04] text-[12px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-not-allowed">
+                      <ShieldOff size={13} /> 请联系管理员分配
                     </div>
                   )}
                 </div>
-              )}
-              {tokens.length > 0 && (
-                <div className="divide-y divide-black/[0.04] -mx-2">
-                  {tokens.map((t, i) => {
-                    const st = tokenStatus(t);
-                    const lastUsed = t.last_used_at || t.last_heartbeat_at;
-                    const isExpanded = expandedTokenIds.has(t.id);
-                    const hasMachines = Array.isArray(t.machines) && t.machines.length > 0;
-                    return (
-                      <div key={t.id || i} className="px-2">
-                        <div className="py-3 flex items-center justify-between gap-3 min-w-0">
-                          <div className="flex items-center gap-3 min-w-0 flex-1">
-                            <div className={`w-9 h-9 rounded-xl shrink-0 flex items-center justify-center shadow-sm ring-1 ring-black/[0.04] bg-gradient-to-br ${st.key === 'active' ? 'from-indigo-400 to-violet-500' : st.key === 'expired' ? 'from-rose-400 to-red-500' : 'from-slate-400 to-slate-600'}`}>
-                              <MonitorDot size={15} className="text-white" />
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-semibold text-ink-800 text-[13px] truncate">{t.label || '未命名采集器'}</span>
-                                <span className={`text-[9.5px] font-bold px-1.5 py-[2px] rounded-md inline-flex items-center gap-1 ${st.color}`}>
-                                  <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />{st.label}
-                                </span>
-                                {t.operator_uid && (
-                                  <span className="text-[9.5px] font-bold px-1.5 py-[2px] rounded-md bg-violet-50 text-violet-700 inline-flex items-center gap-1">
-                                    👤 {String(t.operator_uid || '').slice(0, 6)}…
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[10.5px] text-ink-400 mt-0.5 truncate font-mono flex items-center gap-2 flex-wrap">
-                                <span>ID: {String(t.id || '').slice(0, 12)}…</span>
-                                {t.created_at && <span>创建于 {dayjs(t.created_at).format('YYYY/MM/DD')}</span>}
-                                {t.expires_at && <span>有效期至 {dayjs(t.expires_at).format('YYYY/MM/DD')}</span>}
-                                {lastUsed && <span>最后心跳 {dayjs(lastUsed).fromNow()}</span>}
-                              </div>
-                              <div className="mt-1 text-[10.5px] text-ink-500 flex items-center gap-2 flex-wrap">
-                                <span className="px-1.5 py-0.5 rounded-md bg-indigo-50 text-indigo-700 font-bold inline-flex items-center gap-1">
-                                  💻 {Number(t.online_machines || 0)}<span className="text-indigo-500/80 font-semibold">台在线</span>
-                                  <span className="text-indigo-400 font-semibold ml-0.5">/ {Number(t.total_machines || (hasMachines ? t.machines.length : 0))}</span>
-                                </span>
-                                <span className="px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-bold tabular-nums inline-flex items-center gap-1">
-                                  📊 {Number(t.today_records || 0).toLocaleString()}<span className="text-emerald-600/80 font-semibold">条/今日</span>
-                                </span>
-                                {t.handshake_code && (
-                                  <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono font-bold inline-flex items-center gap-1">
-                                    🤝 {t.handshake_code}
-                                  </span>
-                                )}
-                                {hasMachines ? (
-                                  <button
-                                    onClick={() => toggleExpand(t.id)}
-                                    className="px-1.5 py-0.5 rounded-md bg-white border border-black/[0.05] text-ink-600 hover:bg-ink-50 hover:text-ink-900 font-semibold inline-flex items-center gap-1 transition"
-                                  >
-                                    {isExpanded ? <ChevronDown size={10} /> : <ChevronLeft size={10} />}
-                                    {isExpanded ? '收起终端' : `展开 ${t.machines.length} 台终端`}
-                                  </button>
-                                ) : null}
-                              </div>
-                            </div>
-                          </div>
-                          {st.key === 'active' ? (
-                            <button
-                              onClick={() => onRevokeToken(t.id)}
-                              disabled={revokeBusyId === t.id}
-                              className="h-8 px-2.5 rounded-lg text-[11.5px] font-semibold text-rose-700 bg-rose-50/70 hover:bg-rose-100 border border-rose-200/60 disabled:opacity-60 transition inline-flex items-center gap-1 whitespace-nowrap shrink-0"
-                            >
-                              {revokeBusyId === t.id ? <RefreshCw size={11} className="animate-spin" /> : <Trash2 size={12} />}
-                              {revokeBusyId === t.id ? '吊销中…' : '吊销'}
-                            </button>
-                          ) : (
-                            <span className={`text-[10px] font-bold px-2 py-1 rounded-md ${st.color} whitespace-nowrap shrink-0`}>{st.label}</span>
-                          )}
+
+                {!currentUser && (
+                  <div className="mb-3 rounded-2xl border border-amber-200/70 bg-gradient-to-r from-amber-50 via-yellow-50/50 to-orange-50/40 p-3 flex items-start gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+                      <AlertTriangle size={13} className="text-white" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[12.5px] font-bold text-amber-900 mb-0.5">请先登录后生成采集器 Token</div>
+                      <div className="text-[11px] text-amber-700/90 leading-snug">默认管理员账号：<span className="font-mono bg-amber-100/80 px-1.5 py-0.5 rounded border border-amber-200/60">admin</span> / 密码：<span className="font-mono bg-amber-100/80 px-1.5 py-0.5 rounded border border-amber-200/60">admin123</span>。登录后即可在此页面生成采集器授权 Token，并查看握手码、在线终端数、今日采集汇总等信息。Chrome 插件下载：顶部「下载」按钮 → 采集插件 (ZIP)。</div>
+                    </div>
+                  </div>
+                )}
+
+                {currentUser?.role === 'admin' && siteOverview?.site && (
+                  <div className="mb-3 rounded-2xl border border-indigo-200/60 bg-gradient-to-r from-indigo-50 via-violet-50/50 to-white p-3 flex items-center justify-between gap-3 flex-wrap">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center ring-2 ring-white shadow-sm shrink-0">
+                        <Globe2 size={13} className="text-white" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[12.5px] font-bold text-ink-900 truncate">本站：{siteOverview.site.site_name || '未命名站点'}</div>
+                        <div className="text-[10.5px] text-ink-500 mt-0.5 font-mono truncate">
+                          站点 ID: {String(siteOverview.site.site_id || '').slice(0, 12)}…
                         </div>
-                        {isExpanded && hasMachines && (
-                          <div className="pb-3 pl-12 -mt-1">
-                            <div className="rounded-2xl border border-black/[0.05] bg-ink-50/40 overflow-hidden">
-                              <div className="px-3 py-2 border-b border-black/[0.04] bg-white/60 flex items-center justify-between">
-                                <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500 flex items-center gap-1">
-                                  <Server size={10} className="text-indigo-500" />终端明细
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <div className="px-2.5 py-1 rounded-xl bg-white border border-indigo-200/60 shadow-sm">
+                        <div className="text-[9px] font-bold uppercase tracking-wider text-indigo-500 leading-none mb-0.5">🤝 握手码</div>
+                        <div className="font-mono font-bold text-[13px] text-ink-900 tracking-wide">{siteOverview.site.handshake_code || '—'}</div>
+                      </div>
+                      <div className="px-2.5 py-1 rounded-xl bg-white border border-black/[0.05] shadow-sm">
+                        <div className="text-[9px] font-bold uppercase tracking-wider text-ink-400 leading-none mb-0.5">💻 在线终端</div>
+                        <div className="font-bold text-[13px] text-ink-900 tabular-nums">{Number(siteOverview.machines_online || 0)}<span className="text-[10px] text-ink-400 font-semibold ml-0.5">/ {Number(siteOverview.machines_total || 0)}</span></div>
+                      </div>
+                      <div className="px-2.5 py-1 rounded-xl bg-emerald-50 border border-emerald-200/60 shadow-sm">
+                        <div className="text-[9px] font-bold uppercase tracking-wider text-emerald-600 leading-none mb-0.5">📊 今日采集</div>
+                        <div className="font-bold text-[13px] text-ink-900 tabular-nums">{Number(siteOverview.today_records || 0).toLocaleString()}</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {loading && tokens.length === 0 && (
+                  <div className="py-10 text-center text-ink-400 text-sm rounded-2xl border border-dashed border-black/[0.06] bg-white/60">
+                    <RefreshCw size={18} className="inline-block animate-spin mb-1" /><br />正在加载 Token 列表…
+                  </div>
+                )}
+                {!loading && tokens.length === 0 && (
+                  <div className="py-10 text-center rounded-2xl border border-dashed border-indigo-200/70 bg-gradient-to-br from-indigo-50/60 via-white to-violet-50/40">
+                    <div className="w-14 h-14 rounded-3xl mx-auto flex items-center justify-center bg-gradient-to-br from-indigo-500 to-violet-600 shadow-[0_10px_24px_rgba(99,102,241,0.28)] ring-4 ring-white mb-3">
+                      <KeyRound size={24} className="text-white" />
+                    </div>
+                    <div className="text-[14px] font-bold text-ink-900 mb-1">暂无采集器 Token</div>
+                    <div className="text-[11.5px] text-ink-500 mb-3">
+                      {currentUser?.role === 'admin'
+                        ? '为您自己或其他运营人生成 Token 后，下发给对应人员粘贴到 Chrome 插件或 Python 脚本，即可与身份绑定，其他人无法冒用'
+                        : '采集器 Token 需由管理员统一分配，请联系管理员为您开通，开通后会出现在此处，您无需手动创建'}
+                    </div>
+                    {currentUser?.role === 'admin' ? (
+                      <button
+                        onClick={() => { setGenLabel(''); setGenDays('365'); setGenOperatorUid(currentUser?.operator_uid || ''); setShowGenToken(true); }}
+                        className="h-9 px-4 rounded-xl bg-white text-indigo-700 text-[12.5px] font-semibold border border-indigo-200/70 hover:bg-indigo-50 shadow-sm inline-flex items-center gap-1.5"
+                      ><PlusCircle size={13} />生成第一个 Token</button>
+                    ) : (
+                      <div className="inline-flex items-center gap-2 h-9 px-4 rounded-xl bg-white text-ink-400 text-[12px] font-semibold border border-black/[0.06] shadow-sm">
+                        <ShieldOff size={13} />
+                        请联系管理员分配采集器 Token
+                      </div>
+                    )}
+                  </div>
+                )}
+                {tokens.length > 0 && (
+                  <div className="divide-y divide-black/[0.04] -mx-2">
+                    {tokens.map((t, i) => {
+                      const st = tokenStatus(t);
+                      const lastUsed = t.last_used_at || t.last_heartbeat_at;
+                      const isExpanded = expandedTokenIds.has(t.id);
+                      const hasMachines = Array.isArray(t.machines) && t.machines.length > 0;
+                      return (
+                        <div key={t.id || i} className="px-2">
+                          <div className="py-3 flex items-center justify-between gap-3 min-w-0">
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                              <div className={`w-9 h-9 rounded-xl shrink-0 flex items-center justify-center shadow-sm ring-1 ring-black/[0.04] bg-gradient-to-br ${st.key === 'active' ? 'from-indigo-400 to-violet-500' : st.key === 'expired' ? 'from-rose-400 to-red-500' : 'from-slate-400 to-slate-600'}`}>
+                                <MonitorDot size={15} className="text-white" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-semibold text-ink-800 text-[13px] truncate">{t.label || '未命名采集器'}</span>
+                                  <span className={`text-[9.5px] font-bold px-1.5 py-[2px] rounded-md inline-flex items-center gap-1 ${st.color}`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />{st.label}
+                                  </span>
+                                  {t.operator_uid && (
+                                    <span className="text-[9.5px] font-bold px-1.5 py-[2px] rounded-md bg-violet-50 text-violet-700 inline-flex items-center gap-1">
+                                      👤 {String(t.operator_uid || '').slice(0, 6)}…
+                                    </span>
+                                  )}
                                 </div>
-                                <div className="text-[10px] text-ink-400 font-mono">
-                                  Collector: {String(t.id || '').slice(0, 10)}
+                                <div className="text-[10.5px] text-ink-400 mt-0.5 truncate font-mono flex items-center gap-2 flex-wrap">
+                                  <span>ID: {String(t.id || '').slice(0, 12)}…</span>
+                                  {t.created_at && <span>创建于 {dayjs(t.created_at).format('YYYY/MM/DD')}</span>}
+                                  {t.expires_at && <span>有效期至 {dayjs(t.expires_at).format('YYYY/MM/DD')}</span>}
+                                  {lastUsed && <span>最后心跳 {dayjs(lastUsed).fromNow()}</span>}
+                                </div>
+                                <div className="mt-1 text-[10.5px] text-ink-500 flex items-center gap-2 flex-wrap">
+                                  <span className="px-1.5 py-0.5 rounded-md bg-indigo-50 text-indigo-700 font-bold inline-flex items-center gap-1">
+                                    💻 {Number(t.online_machines || 0)}<span className="text-indigo-500/80 font-semibold">台在线</span>
+                                    <span className="text-indigo-400 font-semibold ml-0.5">/ {Number(t.total_machines || (hasMachines ? t.machines.length : 0))}</span>
+                                  </span>
+                                  <span className="px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-bold tabular-nums inline-flex items-center gap-1">
+                                    📊 {Number(t.today_records || 0).toLocaleString()}<span className="text-emerald-600/80 font-semibold">条/今日</span>
+                                  </span>
+                                  {t.handshake_code && (
+                                    <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono font-bold inline-flex items-center gap-1">
+                                      🤝 {t.handshake_code}
+                                    </span>
+                                  )}
+                                  {hasMachines ? (
+                                    <button
+                                      onClick={() => toggleExpand(t.id)}
+                                      className="px-1.5 py-0.5 rounded-md bg-white border border-black/[0.05] text-ink-600 hover:bg-ink-50 hover:text-ink-900 font-semibold inline-flex items-center gap-1 transition"
+                                    >
+                                      {isExpanded ? <ChevronDown size={10} /> : <ChevronLeft size={10} />}
+                                      {isExpanded ? '收起终端' : `展开 ${t.machines.length} 台终端`}
+                                    </button>
+                                  ) : null}
                                 </div>
                               </div>
-                              <div className="divide-y divide-black/[0.04]">
-                                {t.machines.map((m, mi) => {
-                                  const hb = m.last_heartbeat_at || m.last_collect_at || null;
-                                  const online = hb && (Date.now() - new Date(hb).getTime()) < 15 * 60 * 1000;
-                                  return (
-                                    <div key={m.machine_id || mi} className="px-3 py-2 flex items-center justify-between gap-3 min-w-0">
-                                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${online ? 'bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]' : 'bg-slate-300'}`} />
-                                        <div className="min-w-0 flex-1">
-                                          <div className="text-[11.5px] font-mono font-bold text-ink-800 truncate">{m.machine_id || '未知机器'}</div>
-                                          <div className="text-[10px] text-ink-400 mt-0.5 flex items-center gap-2 flex-wrap font-mono">
-                                            {m.ip && <span>🌐 {m.ip}</span>}
-                                            {m.platform && <span className="uppercase">{m.platform}</span>}
-                                            {m.user_agent && <span className="truncate">{String(m.user_agent).slice(0, 40)}</span>}
+                            </div>
+                            {st.key === 'active' ? (
+                              <button
+                                onClick={() => onRevokeToken(t.id)}
+                                disabled={revokeBusyId === t.id}
+                                className="h-8 px-2.5 rounded-lg text-[11.5px] font-semibold text-rose-700 bg-rose-50/70 hover:bg-rose-100 border border-rose-200/60 disabled:opacity-60 transition inline-flex items-center gap-1 whitespace-nowrap shrink-0"
+                              >
+                                {revokeBusyId === t.id ? <RefreshCw size={11} className="animate-spin" /> : <Trash2 size={12} />}
+                                {revokeBusyId === t.id ? '吊销中…' : '吊销'}
+                              </button>
+                            ) : (
+                              <span className={`text-[10px] font-bold px-2 py-1 rounded-md ${st.color} whitespace-nowrap shrink-0`}>{st.label}</span>
+                            )}
+                          </div>
+                          {isExpanded && hasMachines && (
+                            <div className="pb-3 pl-12 -mt-1">
+                              <div className="rounded-2xl border border-black/[0.05] bg-ink-50/40 overflow-hidden">
+                                <div className="px-3 py-2 border-b border-black/[0.04] bg-white/60 flex items-center justify-between">
+                                  <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500 flex items-center gap-1">
+                                    <Server size={10} className="text-indigo-500" />终端明细
+                                  </div>
+                                  <div className="text-[10px] text-ink-400 font-mono">
+                                    Collector: {String(t.id || '').slice(0, 10)}
+                                  </div>
+                                </div>
+                                <div className="divide-y divide-black/[0.04]">
+                                  {t.machines.map((m, mi) => {
+                                    const hb = m.last_heartbeat_at || m.last_collect_at || null;
+                                    const online = hb && (Date.now() - new Date(hb).getTime()) < 15 * 60 * 1000;
+                                    return (
+                                      <div key={m.machine_id || mi} className="px-3 py-2 flex items-center justify-between gap-3 min-w-0">
+                                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                                          <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${online ? 'bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]' : 'bg-slate-300'}`} />
+                                          <div className="min-w-0 flex-1">
+                                            <div className="text-[11.5px] font-mono font-bold text-ink-800 truncate">{m.machine_id || '未知机器'}</div>
+                                            <div className="text-[10px] text-ink-400 mt-0.5 flex items-center gap-2 flex-wrap font-mono">
+                                              {m.ip && <span>🌐 {m.ip}</span>}
+                                              {m.platform && <span className="uppercase">{m.platform}</span>}
+                                              {m.user_agent && <span className="truncate">{String(m.user_agent).slice(0, 40)}</span>}
+                                            </div>
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                                          <div className="px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold tabular-nums">
+                                            +{Number(m.today_records_count || m.today_records || 0).toLocaleString()}
+                                          </div>
+                                          <div className="text-[10px] text-ink-500 tabular-nums font-mono whitespace-nowrap">
+                                            {hb ? dayjs(hb).fromNow() : '无心跳'}
                                           </div>
                                         </div>
                                       </div>
-                                      <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-                                        <div className="px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold tabular-nums">
-                                          +{Number(m.today_records_count || m.today_records || 0).toLocaleString()}
-                                        </div>
-                                        <div className="text-[10px] text-ink-500 tabular-nums font-mono whitespace-nowrap">
-                                          {hb ? dayjs(hb).fromNow() : '无心跳'}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  );
-                                })}
+                                    );
+                                  })}
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </main>
@@ -2748,14 +3681,13 @@ A: 插件弹窗内「归属运营」可直接修改并保存；如需绑定采�
   );
 }
 
-function UserSwitcher({ value, users, onChange, currentUser, isAdmin, onGoAdmin, onLogout, onProfile, onOpenCollector, mockEnabled, onToggleMock, onClearAllData, onDeleteAccount }) {
+function UserSwitcher({ value, users, onChange, currentUser, isAdmin, onGoAdmin, onLogout, onProfile, onOpenCollector, onClearAllData, onDeleteAccount }) {
   const [open, setOpen] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [inviteRole, setInviteRole] = useState('operator');
   const [inviteDays, setInviteDays] = useState('7');
   const [busy, setBusy] = useState(false);
-  const [mockBusy, setMockBusy] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const menuRef = useRef(null);
   const containerRef = useRef(null);
@@ -2790,11 +3722,6 @@ function UserSwitcher({ value, users, onChange, currentUser, isAdmin, onGoAdmin,
       setOpen(false);
       setConfirmClear(false);
     } finally { setClearBusy(false); }
-  };
-  const handleToggleMock = async () => {
-    if (mockBusy) return;
-    setMockBusy(true);
-    try { await onToggleMock?.(); } finally { setTimeout(() => setMockBusy(false), 350); }
   };
   return (
     <div className="relative" ref={containerRef}>
@@ -2847,43 +3774,33 @@ function UserSwitcher({ value, users, onChange, currentUser, isAdmin, onGoAdmin,
                 />
                 <div className="min-w-0 flex-1">
                   <div className="font-bold text-ink-800 text-[14px] truncate flex items-center gap-1.5">{currentUser?.display_name || currentUser?.username || '演示模式（未登录）'}{isAdmin && <span className="text-[9px] font-bold font-mono px-1.5 py-[2px] rounded-md bg-gradient-to-br from-amber-500 to-orange-600 text-white">ADMIN</span>}</div>
-                  <div className="text-[11.5px] text-ink-500 truncate font-mono mt-0.5">{currentUser?.email || currentUser?.operator_name ? (currentUser.email ? currentUser.email : currentUser.operator_name) : '后端未启用鉴权 · mock 数据'}</div>
+                  <div className="text-[11.5px] text-ink-500 truncate font-mono mt-0.5">{currentUser?.email || currentUser?.operator_name ? (currentUser.email ? currentUser.email : currentUser.operator_name) : '后端未启用鉴权 · 仅本地预览'}</div>
                 </div>
               </div>
             </div>
             {!showInvite ? (
               <>
-                <div className="px-4 py-2.5 border-b border-black/[0.04] bg-gradient-to-r from-emerald-50/70 via-teal-50/40 to-transparent">
+                <div className="px-4 py-2.5 border-b border-black/[0.04] bg-gradient-to-r from-violet-50/70 via-indigo-50/50 to-transparent">
                   <button
-                    onClick={handleToggleMock}
-                    disabled={mockBusy}
-                    className="w-full flex items-center gap-3 text-left group disabled:opacity-70"
+                    onClick={() => { onProfile?.(); setOpen(false); }}
+                    className="w-full flex items-center gap-3 text-left group"
                   >
-                    <div className={`w-9 h-9 rounded-xl shrink-0 flex items-center justify-center shadow-sm ${mockEnabled ? 'bg-gradient-to-br from-emerald-400 to-teal-500' : 'bg-gradient-to-br from-slate-400 to-slate-600'}`}>
-                      <Theater size={16} className="text-white" />
+                    <div className="w-9 h-9 rounded-xl shrink-0 flex items-center justify-center shadow-sm bg-gradient-to-br from-violet-500 via-indigo-500 to-indigo-600">
+                      <KeyRound size={16} className="text-white" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-[13px] font-bold text-ink-800 flex items-center gap-1.5">
-                        模拟数据填充
-                        {mockEnabled && <span className="text-[9.5px] font-bold px-1.5 py-[2px] rounded-md bg-emerald-100 text-emerald-700">已启用</span>}
-                        {!mockEnabled && <span className="text-[9.5px] font-bold px-1.5 py-[2px] rounded-md bg-slate-200 text-slate-700">已暂停</span>}
+                        个人资料、安全 & 采集器 Token
+                        <span className="text-[9.5px] font-bold px-1.5 py-[2px] rounded-md bg-gradient-to-r from-violet-500 to-indigo-500 text-white">推荐</span>
                       </div>
                       <div className="text-[10.5px] text-ink-500 mt-0.5">
-                        {mockEnabled ? '数据空缺处自动填充演示数据；关闭后仅显示真实采集结果（全 0 为空数据正常）' : '开启后数据空缺处自动填充演示数据（不影响真实入库）'}
+                        修改昵称/头像/密码，生成并管理采集器授权 Token
                       </div>
                     </div>
-                    <div className={`shrink-0 h-6 w-11 rounded-full transition relative shadow-inner ${mockEnabled ? 'bg-emerald-500' : 'bg-slate-300'}`}>
-                      <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all duration-200 ${mockEnabled ? 'left-[22px]' : 'left-0.5'} ${mockBusy ? 'scale-90' : ''}`} />
-                    </div>
+                    <ChevronRight size={14} className="text-indigo-400 group-hover:text-indigo-600 shrink-0" />
                   </button>
                 </div>
                 <div className="px-2 py-2 border-t border-black/[0.04] bg-ink-50/30 space-y-1">
-                  <button
-                    onClick={() => { onProfile?.(); setOpen(false); }}
-                    className="w-full h-9 px-3 rounded-lg text-[12.5px] font-semibold text-ink-700 hover:bg-white hover:text-indigo-700 transition flex items-center gap-2"
-                  >
-                    <User size={13} />个人资料、安全 & 采集器 Token
-                  </button>
                   {isAdmin && (
                     <button
                       onClick={() => { onGoAdmin?.(); setOpen(false); }}
@@ -3035,10 +3952,10 @@ function GrowthChart({ data, platforms, activeKey, setActiveKey }) {
 }
 
 function TrafficPie({ data, activeName, setActiveName, onSelectPlatform, onNavigatePlatform }) {
-  if (!data || data.length === 0) {
+  const total = (data || []).reduce((s, d) => s + (d.value || 0), 0);
+  if (!data || (total === 0 && data.length < 2)) {
     return <div className="h-full flex items-center justify-center text-ink-400 text-sm">暂无流量数据</div>;
   }
-  const total = data.reduce((s, d) => s + d.value, 0);
   const platformNameToKey = (name) => {
     const meta = PLATFORM_META[name] || Object.values(PLATFORM_META).find(m => m.name === name);
     return meta?.key || name;
@@ -3152,12 +4069,14 @@ function OperatorPerformanceChart({ stats, onSelectOperator, selectedUid }) {
   );
 }
 
-function StocktwitsCard({ r, onOpenDetail, onNavigateOperator }) {
+function StocktwitsCard({ r, idx = 0, onOpenDetail, onNavigateOperator }) {
   const up = (r.symbol_change_pct || 0) >= 0;
   const bullish = (r.sentiment_bull || 0) >= (r.sentiment_bear || 0);
   return (
     <motion.div
-      variants={FADE_UP}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.45, delay: idx * 0.06, ease: [0.22, 1, 0.36, 1] }}
       whileHover={{ y: -2, transition: { duration: 0.2 } }}
       onClick={() => onOpenDetail && onOpenDetail(r)}
       className={
@@ -3167,9 +4086,38 @@ function StocktwitsCard({ r, onOpenDetail, onNavigateOperator }) {
     >
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#4263EB] to-[#6366f1] flex items-center justify-center shrink-0 shadow-sm">
-            <span className="text-white font-bold text-[14px]">${r.symbol?.slice(0, 4) || 'ST'}</span>
-          </div>
+          {(() => {
+            const avatarSrc = r.avatar_data_url || r.avatar_url || '';
+            const fallback = (
+              <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#4263EB] to-[#6366f1] flex items-center justify-center shrink-0 shadow-sm">
+                <span className="text-white font-bold text-[14px]">${r.symbol?.slice(0, 4) || 'ST'}</span>
+              </div>
+            );
+            if (!avatarSrc) return fallback;
+            return (
+              <div className="relative w-11 h-11 shrink-0">
+                <div data-role="avatar-img-wrap" className="w-11 h-11 rounded-2xl overflow-hidden shadow-sm bg-ink-100 ring-1 ring-black/[0.04]">
+                  <img
+                    src={avatarSrc}
+                    alt={r.account || r.symbol || 'X'}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      const wrap = e.currentTarget.closest && e.currentTarget.closest('[data-role="avatar-img-wrap"]');
+                      const root = wrap && wrap.parentElement;
+                      if (wrap) wrap.style.display = 'none';
+                      if (root) {
+                        const fb = root.querySelector('[data-role="avatar-fallback"]');
+                        if (fb) fb.style.display = '';
+                      }
+                    }}
+                  />
+                </div>
+                <div data-role="avatar-fallback" className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#4263EB] to-[#6366f1] flex items-center justify-center shrink-0 shadow-sm absolute inset-0" style={{ display: 'none' }}>
+                  <span className="text-white font-bold text-[14px]">${r.symbol?.slice(0, 4) || 'ST'}</span>
+                </div>
+              </div>
+            );
+          })()}
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="font-bold text-[17px] tracking-tight text-ink-900 truncate">{r.account}</span>
@@ -3253,13 +4201,15 @@ function StocktwitsCard({ r, onOpenDetail, onNavigateOperator }) {
   );
 }
 
-function RedditCard({ r, onOpenDetail, onNavigateOperator }) {
+function RedditCard({ r, idx = 0, onOpenDetail, onNavigateOperator }) {
   const onlineRatio = r.members > 0 ? ((r.online || 0) / r.members) : 0;
   const onlinePct = Math.min(100, onlineRatio * 100);
   const heatColor = onlineRatio > 0.004 ? '#10b981' : onlineRatio > 0.002 ? '#f59e0b' : '#94a3b8';
   return (
     <motion.div
-      variants={FADE_UP}
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.45, delay: idx * 0.06, ease: [0.22, 1, 0.36, 1] }}
       whileHover={{ y: -2, transition: { duration: 0.2 } }}
       onClick={() => onOpenDetail && onOpenDetail(r)}
       className={
@@ -3269,9 +4219,38 @@ function RedditCard({ r, onOpenDetail, onNavigateOperator }) {
     >
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#FF4500] to-[#f59e0b] flex items-center justify-center shrink-0 shadow-sm">
-            <Globe2 size={20} className="text-white" strokeWidth={2.2} />
-          </div>
+          {(() => {
+            const avatarSrc = r.avatar_data_url || r.avatar_url || '';
+            const fallback = (
+              <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#FF4500] to-[#f59e0b] flex items-center justify-center shrink-0 shadow-sm">
+                <Globe2 size={20} className="text-white" strokeWidth={2.2} />
+              </div>
+            );
+            if (!avatarSrc) return fallback;
+            return (
+              <div className="relative w-11 h-11 shrink-0">
+                <div data-role="avatar-img-wrap" className="w-11 h-11 rounded-2xl overflow-hidden shadow-sm bg-ink-100 ring-1 ring-black/[0.04]">
+                  <img
+                    src={avatarSrc}
+                    alt={r.account || r.subreddit || 'R'}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      const wrap = e.currentTarget.closest && e.currentTarget.closest('[data-role="avatar-img-wrap"]');
+                      const root = wrap && wrap.parentElement;
+                      if (wrap) wrap.style.display = 'none';
+                      if (root) {
+                        const fb = root.querySelector('[data-role="avatar-fallback"]');
+                        if (fb) fb.style.display = '';
+                      }
+                    }}
+                  />
+                </div>
+                <div data-role="avatar-fallback" className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#FF4500] to-[#f59e0b] flex items-center justify-center shrink-0 shadow-sm absolute inset-0" style={{ display: 'none' }}>
+                  <Globe2 size={20} className="text-white" strokeWidth={2.2} />
+                </div>
+              </div>
+            );
+          })()}
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="font-bold text-[16px] tracking-tight text-ink-900 truncate">{r.account}</span>
@@ -4346,6 +5325,7 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [pageView, setPageView] = useState('dashboard');
+  const [adminInitialTab, setAdminInitialTab] = useState(null);
   const [viewParams, setViewParams] = useState({});
 
   const [loading, setLoading] = useState(true);
@@ -4740,36 +5720,6 @@ export default function App() {
 
   const isAdmin = (currentUser?.role || data?.currentUser?.role) === 'admin';
   const hasJwt = !!getAuthSnapshot()?.token || !!currentUser?.uid;
-  const effectiveMockServer = data?.mock_enabled;
-  const localMockOverride = getLocalMockOverride();
-  const mockEnabled = localMockOverride !== null
-    ? localMockOverride
-    : (effectiveMockServer !== undefined ? !!effectiveMockServer : true);
-  const toggleMock = useCallback(async () => {
-    try {
-      const nextVal = !mockEnabled;
-      if (!hasJwt || currentUser?.role !== 'admin') {
-        setLocalMockOverride(nextVal);
-        showToast(nextVal ? '模拟数据已启用（仅本机前端生效）' : '模拟数据已暂停，现在仅显示真实采集数据', nextVal ? 'success' : 'warning');
-        await loadData(currentUid, { force: true });
-        return;
-      }
-      try {
-        const r = await adminPatchSystemFlags([{ key: 'mock_enabled', value: nextVal ? true : false }]);
-        if (r && r.ok === false) throw new Error(r.detail || r.message || '设置失败');
-        showToast(nextVal ? '模拟数据已启用' : '模拟数据已暂停，现在仅显示真实采集数据', nextVal ? 'success' : 'warning');
-      } catch (e) {
-        setLocalMockOverride(nextVal);
-        showToast(
-          nextVal
-            ? `模拟数据已启用（仅本机生效，服务端设置失败：${e.message || '无权限'}）`
-            : `模拟数据已暂停（仅本机生效，服务端设置失败：${e.message || '无权限'}）`,
-          nextVal ? 'success' : 'warning'
-        );
-      }
-      await loadData(currentUid, { force: true });
-    } catch (e) { showToast(e.message || '操作失败，请稍后重试', 'error'); }
-  }, [mockEnabled, hasJwt, currentUser?.role, showToast, currentUid, loadData]);
 
   const handleClearAllData = useCallback(async () => {
     if (!hasJwt) { showToast('未登录无法清空数据', 'error'); return; }
@@ -4985,6 +5935,9 @@ export default function App() {
 
   const stocktwitsRecords = useMemo(() => filteredRecords.filter(r => r.platform_key === 'stocktwits'), [filteredRecords]);
   const redditRecords = useMemo(() => filteredRecords.filter(r => r.platform_key === 'reddit'), [filteredRecords]);
+
+  const stockMonitorList = useMemo(() => (data?.stocktwits_monitors || []), [data?.stocktwits_monitors]);
+  const redditMonitorList = useMemo(() => (data?.reddit_monitors || []), [data?.reddit_monitors]);
 
   const searchResults = useMemo(() => {
     const q = (query || '').trim().toLowerCase();
@@ -5839,6 +6792,100 @@ export default function App() {
     if (uid) loadData(uid);
   }, [showToast, loadData]);
 
+  const [tokens, setTokens] = useState([]);
+  const [showGenToken, setShowGenToken] = useState(false);
+  const [genLabel, setGenLabel] = useState('');
+  const [genDays, setGenDays] = useState('365');
+  const [genOperatorUid, setGenOperatorUid] = useState('');
+  const [genBusy, setGenBusy] = useState(false);
+  const [revealToken, setRevealToken] = useState(null);
+  const [revokeBusyId, setRevokeBusyId] = useState(null);
+  const [expandedTokenIds, setExpandedTokenIds] = useState(() => new Set());
+  const [siteOverview, setSiteOverview] = useState(null);
+  const [tokensLoading, setTokensLoading] = useState(true);
+  const [tokensOperators, setTokensOperators] = useState([]);
+
+  const loadTokensData = useCallback(async () => {
+    setTokensLoading(true);
+    try {
+      const tr = await listCollectorTokens();
+      if (tr && Array.isArray(tr)) setTokens(tr);
+      else if (tr?.tokens && Array.isArray(tr.tokens)) setTokens(tr.tokens);
+      else if (tr?.items && Array.isArray(tr.items)) setTokens(tr.items);
+      else setTokens([]);
+      if (currentUser?.role === 'admin') {
+        try {
+          const so = await adminSiteOverview();
+          if (so && so.site) setSiteOverview(so);
+        } catch {}
+        try {
+          const op = await listOperators();
+          setTokensOperators(op?.items || []);
+        } catch {}
+      }
+    } catch {}
+    setTokensLoading(false);
+  }, [currentUser?.role]);
+
+  useEffect(() => { if (isAuthenticated) loadTokensData(); }, [isAuthenticated, loadTokensData]);
+
+  const toggleExpand = useCallback((id) => {
+    setExpandedTokenIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const tokenStatus = useCallback((t) => {
+    if (t?.revoked_at) return { key: 'revoked', label: '已吊销', color: 'bg-slate-200 text-slate-600', dot: 'bg-slate-400' };
+    if (t?.expires_at && new Date(t.expires_at) < new Date()) return { key: 'expired', label: '已过期', color: 'bg-rose-100 text-rose-700', dot: 'bg-rose-500' };
+    return { key: 'active', label: '使用中', color: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500' };
+  }, []);
+
+  const onCreateToken = useCallback(async () => {
+    setGenBusy(true);
+    try {
+      const label = (genLabel || '').trim() || '未命名采集器';
+      const days = Math.max(1, Math.floor(Number(genDays) || 365));
+      const isAdmin = currentUser?.role === 'admin';
+      const targetOp = isAdmin ? (genOperatorUid || currentUser?.operator_uid || '') : '';
+      if (isAdmin && !targetOp) throw new Error('请选择要分配给的运营人');
+      const r = await createCollectorToken(label, days, isAdmin ? targetOp : undefined);
+      if (!r || r.ok === false || !r.token) throw new Error(r?.detail || r?.message || '生成失败');
+      setShowGenToken(false);
+      setGenLabel(''); setGenDays('365'); setGenOperatorUid('');
+      setRevealToken({
+        token: r.token, label: r.label || label, id: r.id,
+        site: r.site || null, collector_prefix: r.collector_prefix || null,
+        operator_uid: r.operator_uid || null, operator_name: r.operator_name || null,
+        usage: r.usage || null,
+      });
+      showToast(r.operator_name ? `已为「${r.operator_name}」生成采集器 Token` : '采集器 Token 生成成功', 'success');
+      loadTokensData();
+    } catch (e) { showToast(e.message || '生成失败，请稍后重试', 'error'); }
+    finally { setGenBusy(false); }
+  }, [genLabel, genDays, currentUser, genOperatorUid, showToast, loadTokensData]);
+
+  const onRevokeToken = useCallback(async (id) => {
+    if (!id) return;
+    if (!window.confirm('确认要吊销这个采集器 Token 吗？吊销后正在使用它的插件/脚本将立即被拒绝上报。')) return;
+    setRevokeBusyId(id);
+    try {
+      const r = await revokeCollectorToken(id);
+      if (r && r.ok === false) throw new Error(r.detail || r.message || '吊销失败');
+      showToast('Token 已吊销', 'success');
+      loadTokensData();
+    } catch (e) { showToast(e.message || '吊销失败', 'error'); }
+    finally { setRevokeBusyId(null); }
+  }, [showToast, loadTokensData]);
+
+  const copyReveal = useCallback(async () => {
+    if (!revealToken?.token) return;
+    try { await navigator.clipboard.writeText(revealToken.token); showToast('Token 已复制到剪贴板', 'success'); }
+    catch { showToast('复制失败，请手动框选复制', 'warn'); }
+  }, [revealToken, showToast]);
+
   if (!authInitialized) {
     return (
       <div className="min-h-screen w-full bg-gradient-to-br from-indigo-50 via-white to-violet-50 flex items-center justify-center">
@@ -5855,6 +6902,222 @@ export default function App() {
     );
   }
 
+  const collectorTokensPanel = (
+    <div id="collector-tokens-section" data-collector-section="1" className="rounded-3xl border border-black/[0.05] bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <div className="text-[11px] font-bold text-ink-500 uppercase tracking-wider flex items-center gap-1.5"><KeyRound size={12} className="text-indigo-600" />采集器授权 Token</div>
+          <div className="text-[11px] text-ink-400 mt-0.5">
+            {currentUser?.role === 'admin'
+              ? '每个 Chrome 插件 / Python 脚本对应一个独立 Token，可分配给不同运营人；吊销后该设备立即被拒绝上报'
+              : '每个 Chrome 插件 / Python 脚本对应一个独立 Token；如需新增请联系管理员为您分配，吊销后该设备立即被拒绝上报'}
+          </div>
+        </div>
+        {currentUser?.role === 'admin' ? (
+          <button
+            onClick={() => { setGenLabel(''); setGenDays('365'); setGenOperatorUid(currentUser?.operator_uid || ''); setShowGenToken(true); }}
+            className="h-9 px-3.5 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 hover:brightness-110 text-white text-[12.5px] font-semibold inline-flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0"
+          ><PlusCircle size={13} />生成新 Token</button>
+        ) : (
+          <div title="仅管理员可创建和分配采集器 Token"
+            className="h-9 px-3.5 rounded-xl bg-slate-100 text-slate-400 border border-black/[0.04] text-[12px] font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 cursor-not-allowed">
+            <ShieldOff size={13} /> 请联系管理员分配
+          </div>
+        )}
+      </div>
+
+      {!currentUser && (
+        <div className="mb-3 rounded-2xl border border-amber-200/70 bg-gradient-to-r from-amber-50 via-yellow-50/50 to-orange-50/40 p-3 flex items-start gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+            <AlertTriangle size={13} className="text-white" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[12.5px] font-bold text-amber-900 mb-0.5">请先登录后生成采集器 Token</div>
+            <div className="text-[11px] text-amber-700/90 leading-snug">默认管理员账号：<span className="font-mono bg-amber-100/80 px-1.5 py-0.5 rounded border border-amber-200/60">admin</span> / 密码：<span className="font-mono bg-amber-100/80 px-1.5 py-0.5 rounded border border-amber-200/60">admin123</span>。登录后即可在此页面生成采集器授权 Token，并查看握手码、在线终端数、今日采集汇总等信息。Chrome 插件下载：顶部「下载」按钮 → 采集插件 (ZIP)。</div>
+          </div>
+        </div>
+      )}
+
+      {currentUser?.role === 'admin' && siteOverview?.site && (
+        <div className="mb-3 rounded-2xl border border-indigo-200/60 bg-gradient-to-r from-indigo-50 via-violet-50/50 to-white p-3 flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center ring-2 ring-white shadow-sm shrink-0">
+              <Globe2 size={13} className="text-white" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[12.5px] font-bold text-ink-900 truncate">本站：{siteOverview.site.site_name || '未命名站点'}</div>
+              <div className="text-[10.5px] text-ink-500 mt-0.5 font-mono truncate">
+                站点 ID: {String(siteOverview.site.site_id || '').slice(0, 12)}…
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="px-2.5 py-1 rounded-xl bg-white border border-indigo-200/60 shadow-sm">
+              <div className="text-[9px] font-bold uppercase tracking-wider text-indigo-500 leading-none mb-0.5">🤝 握手码</div>
+              <div className="font-mono font-bold text-[13px] text-ink-900 tracking-wide">{siteOverview.site.handshake_code || '—'}</div>
+            </div>
+            <div className="px-2.5 py-1 rounded-xl bg-white border border-black/[0.05] shadow-sm">
+              <div className="text-[9px] font-bold uppercase tracking-wider text-ink-400 leading-none mb-0.5">💻 在线终端</div>
+              <div className="font-bold text-[13px] text-ink-900 tabular-nums">{Number(siteOverview.machines_online || 0)}<span className="text-[10px] text-ink-400 font-semibold ml-0.5">/ {Number(siteOverview.machines_total || 0)}</span></div>
+            </div>
+            <div className="px-2.5 py-1 rounded-xl bg-emerald-50 border border-emerald-200/60 shadow-sm">
+              <div className="text-[9px] font-bold uppercase tracking-wider text-emerald-600 leading-none mb-0.5">📊 今日采集</div>
+              <div className="font-bold text-[13px] text-ink-900 tabular-nums">{Number(siteOverview.today_records || 0).toLocaleString()}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tokensLoading && tokens.length === 0 && (
+        <div className="py-10 text-center text-ink-400 text-sm rounded-2xl border border-dashed border-black/[0.06] bg-white/60">
+          <RefreshCw size={18} className="inline-block animate-spin mb-1" /><br />正在加载 Token 列表…
+        </div>
+      )}
+      {!tokensLoading && tokens.length === 0 && (
+        <div className="py-10 text-center rounded-2xl border border-dashed border-indigo-200/70 bg-gradient-to-br from-indigo-50/60 via-white to-violet-50/40">
+          <div className="w-14 h-14 rounded-3xl mx-auto flex items-center justify-center bg-gradient-to-br from-indigo-500 to-violet-600 shadow-[0_10px_24px_rgba(99,102,241,0.28)] ring-4 ring-white mb-3">
+            <KeyRound size={24} className="text-white" />
+          </div>
+          <div className="text-[14px] font-bold text-ink-900 mb-1">暂无采集器 Token</div>
+          <div className="text-[11.5px] text-ink-500 mb-3">
+            {currentUser?.role === 'admin'
+              ? '为您自己或其他运营人生成 Token 后，下发给对应人员粘贴到 Chrome 插件或 Python 脚本，即可与身份绑定，其他人无法冒用'
+              : '采集器 Token 需由管理员统一分配，请联系管理员为您开通，开通后会出现在此处，您无需手动创建'}
+          </div>
+          {currentUser?.role === 'admin' ? (
+            <button
+              onClick={() => { setGenLabel(''); setGenDays('365'); setGenOperatorUid(currentUser?.operator_uid || ''); setShowGenToken(true); }}
+              className="h-9 px-4 rounded-xl bg-white text-indigo-700 text-[12.5px] font-semibold border border-indigo-200/70 hover:bg-indigo-50 shadow-sm inline-flex items-center gap-1.5"
+            ><PlusCircle size={13} />生成第一个 Token</button>
+          ) : (
+            <div className="inline-flex items-center gap-2 h-9 px-4 rounded-xl bg-white text-ink-400 text-[12px] font-semibold border border-black/[0.06] shadow-sm">
+              <ShieldOff size={13} />
+              请联系管理员分配采集器 Token
+            </div>
+          )}
+        </div>
+      )}
+      {tokens.length > 0 && (
+        <div className="divide-y divide-black/[0.04] -mx-2">
+          {tokens.map((t, i) => {
+            const st = tokenStatus(t);
+            const lastUsed = t.last_used_at || t.last_heartbeat_at;
+            const isExpanded = expandedTokenIds.has(t.id);
+            const hasMachines = Array.isArray(t.machines) && t.machines.length > 0;
+            return (
+              <div key={t.id || i} className="px-2">
+                <div className="py-3 flex items-center justify-between gap-3 min-w-0">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <div className={`w-9 h-9 rounded-xl shrink-0 flex items-center justify-center shadow-sm ring-1 ring-black/[0.04] bg-gradient-to-br ${st.key === 'active' ? 'from-indigo-400 to-violet-500' : st.key === 'expired' ? 'from-rose-400 to-red-500' : 'from-slate-400 to-slate-600'}`}>
+                      <MonitorDot size={15} className="text-white" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-ink-800 text-[13px] truncate">{t.label || '未命名采集器'}</span>
+                        <span className={`text-[9.5px] font-bold px-1.5 py-[2px] rounded-md inline-flex items-center gap-1 ${st.color}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />{st.label}
+                        </span>
+                        {t.operator_uid && (
+                          <span className="text-[9.5px] font-bold px-1.5 py-[2px] rounded-md bg-violet-50 text-violet-700 inline-flex items-center gap-1">
+                            👤 {String(t.operator_uid || '').slice(0, 6)}…
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[10.5px] text-ink-400 mt-0.5 truncate font-mono flex items-center gap-2 flex-wrap">
+                        <span>ID: {String(t.id || '').slice(0, 12)}…</span>
+                        {t.created_at && <span>创建于 {dayjs(t.created_at).format('YYYY/MM/DD')}</span>}
+                        {t.expires_at && <span>有效期至 {dayjs(t.expires_at).format('YYYY/MM/DD')}</span>}
+                        {lastUsed && <span>最后心跳 {dayjs(lastUsed).fromNow()}</span>}
+                      </div>
+                      <div className="mt-1 text-[10.5px] text-ink-500 flex items-center gap-2 flex-wrap">
+                        <span className="px-1.5 py-0.5 rounded-md bg-indigo-50 text-indigo-700 font-bold inline-flex items-center gap-1">
+                          💻 {Number(t.online_machines || 0)}<span className="text-indigo-500/80 font-semibold">台在线</span>
+                          <span className="text-indigo-400 font-semibold ml-0.5">/ {Number(t.total_machines || (hasMachines ? t.machines.length : 0))}</span>
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-bold tabular-nums inline-flex items-center gap-1">
+                          📊 {Number(t.today_records || 0).toLocaleString()}<span className="text-emerald-600/80 font-semibold">条/今日</span>
+                        </span>
+                        {t.handshake_code && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 font-mono font-bold inline-flex items-center gap-1">
+                            🤝 {t.handshake_code}
+                          </span>
+                        )}
+                        {hasMachines ? (
+                          <button
+                            onClick={() => toggleExpand(t.id)}
+                            className="px-1.5 py-0.5 rounded-md bg-white border border-black/[0.05] text-ink-600 hover:bg-ink-50 hover:text-ink-900 font-semibold inline-flex items-center gap-1 transition"
+                          >
+                            {isExpanded ? <ChevronDown size={10} /> : <ChevronLeft size={10} />}
+                            {isExpanded ? '收起终端' : `展开 ${t.machines.length} 台终端`}
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                  {st.key === 'active' ? (
+                    <button
+                      onClick={() => onRevokeToken(t.id)}
+                      disabled={revokeBusyId === t.id}
+                      className="h-8 px-2.5 rounded-lg text-[11.5px] font-semibold text-rose-700 bg-rose-50/70 hover:bg-rose-100 border border-rose-200/60 disabled:opacity-60 transition inline-flex items-center gap-1 whitespace-nowrap shrink-0"
+                    >
+                      {revokeBusyId === t.id ? <RefreshCw size={11} className="animate-spin" /> : <Trash2 size={12} />}
+                      {revokeBusyId === t.id ? '吊销中…' : '吊销'}
+                    </button>
+                  ) : (
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded-md ${st.color} whitespace-nowrap shrink-0`}>{st.label}</span>
+                  )}
+                </div>
+                {isExpanded && hasMachines && (
+                  <div className="pb-3 pl-12 -mt-1">
+                    <div className="rounded-2xl border border-black/[0.05] bg-ink-50/40 overflow-hidden">
+                      <div className="px-3 py-2 border-b border-black/[0.04] bg-white/60 flex items-center justify-between">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-ink-500 flex items-center gap-1">
+                          <Server size={10} className="text-indigo-500" />终端明细
+                        </div>
+                        <div className="text-[10px] text-ink-400 font-mono">
+                          Collector: {String(t.id || '').slice(0, 10)}
+                        </div>
+                      </div>
+                      <div className="divide-y divide-black/[0.04]">
+                        {t.machines.map((m, mi) => {
+                          const hb = m.last_heartbeat_at || m.last_collect_at || null;
+                          const online = hb && (Date.now() - new Date(hb).getTime()) < 15 * 60 * 1000;
+                          return (
+                            <div key={m.machine_id || mi} className="px-3 py-2 flex items-center justify-between gap-3 min-w-0">
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${online ? 'bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.12)]' : 'bg-slate-300'}`} />
+                                <div className="min-w-0 flex-1">
+                                  <div className="text-[11.5px] font-mono font-bold text-ink-800 truncate">{m.machine_id || '未知机器'}</div>
+                                  <div className="text-[10px] text-ink-400 mt-0.5 flex items-center gap-2 flex-wrap font-mono">
+                                    {m.ip && <span>🌐 {m.ip}</span>}
+                                    {m.platform && <span className="uppercase">{m.platform}</span>}
+                                    {m.user_agent && <span className="truncate">{String(m.user_agent).slice(0, 40)}</span>}
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                                <div className="px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 text-[10px] font-bold tabular-nums">
+                                  +{Number(m.today_records_count || m.today_records || 0).toLocaleString()}
+                                </div>
+                                <div className="text-[10px] text-ink-500 tabular-nums font-mono whitespace-nowrap">
+                                  {hb ? dayjs(hb).fromNow() : '无心跳'}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
   const needLogin = !isAuthenticated;
   const renderLogin = pageView === 'login' || needLogin;
   const renderRegister = pageView === 'register';
@@ -5866,8 +7129,10 @@ export default function App() {
       <>
         <AdminUserManagementPage
           currentUser={currentUser}
-          onBack={() => setPageView('dashboard')}
+          onBack={() => { setAdminInitialTab(null); setPageView('dashboard'); }}
           showToast={showToast}
+          initialTab={adminInitialTab}
+          tokensPanelJSX={collectorTokensPanel}
         />
         <AnimatePresence>
           {globalToast && (
@@ -5914,6 +7179,7 @@ export default function App() {
           currentUser={currentUser}
           onBack={() => setPageView('dashboard')}
           showToast={showToast}
+          onUpdateCurrentUser={setCurrentUser}
         />
         <AnimatePresence>
           {globalToast && (
@@ -6313,17 +7579,16 @@ export default function App() {
             <motion.button
               whileHover={{ scale: 1.04 }}
               whileTap={{ scale: 0.95 }}
-              onClick={() => setShowAISummaryModal(true)}
-              className="h-11 px-3 sm:px-3.5 max-sm:w-11 max-sm:px-0 rounded-2xl border border-black/[0.06] bg-white/80 hover:bg-white transition flex items-center gap-2 text-[13px] font-semibold text-indigo-700 disabled:opacity-50 shadow-sm shrink-0"
-              title="AI 智能周报 / 诊断"
+              onClick={() => setShowDownloads(true)}
+              className="h-11 px-3 sm:px-3.5 max-sm:w-11 max-sm:px-0 rounded-2xl border border-black/[0.06] bg-gradient-to-br from-sky-500 to-blue-600 hover:brightness-110 transition flex items-center gap-2 text-[13px] font-semibold text-white disabled:opacity-50 shadow-sm shrink-0"
+              title="下载数据采集插件"
             >
-              <Sparkles size={15} className="text-indigo-600 shrink-0" />
-              <span className="hidden sm:inline">AI 周报</span>
-              {scopedDiagnosis?.length > 0 && <span className="text-[10.5px] font-bold tabular-nums px-1.5 py-[2px] rounded-md bg-gradient-to-br from-indigo-50 to-violet-50 text-indigo-700 border border-indigo-100 min-w-[20px] text-center shadow-sm">{scopedDiagnosis.length}</span>}
+              <Download size={15} className="text-white shrink-0" />
+              <span className="hidden sm:inline">下载插件</span>
             </motion.button>
             <UserSwitcher
               value={currentUid}
-              users={data?.operators || OPERATORS}
+              users={data?.operators || []}
               onChange={setCurrentUid}
               currentUser={currentUser}
               isAdmin={isAdmin}
@@ -6333,8 +7598,6 @@ export default function App() {
               onOpenCollector={() => {
                 setPageView('profile');
               }}
-              mockEnabled={mockEnabled}
-              onToggleMock={toggleMock}
               onClearAllData={handleClearAllData}
               onDeleteAccount={handleDeleteAccount}
             />
@@ -6580,44 +7843,74 @@ export default function App() {
                 )
               ))}
 
-              {((data?.platforms || []).some(p => p.key === 'stocktwits' || p.name === 'Stocktwits') || stocktwitsRecords.length > 0 || mockEnabled) && (
+              {(() => {
+                const cal = data?.post_frequency_calendar;
+                const calDays = Array.isArray(cal?.days) ? cal.days : [];
+                const calPlats = Array.isArray(cal?.platforms) ? cal.platforms : [];
+                const calHours = Array.isArray(cal?.hourly_distribution) ? cal.hourly_distribution : [];
+                if (calDays.length === 0 && calPlats.length === 0 && calHours.length === 0) return null;
+                return <PostFrequencySection calendar={cal} />;
+              })()}
+
+              {(stockMonitorList.length > 0 || isAdmin) && (
                 <motion.div variants={STAGGER} initial="hidden" whileInView="show" viewport={{ once: true, amount: 0.25 }} className="mb-6">
                   <div className="flex items-center justify-between mb-3.5">
                     <div className="flex items-center gap-2.5">
                       <div className="w-7 h-7 rounded-xl bg-[#4263EB]/10 flex items-center justify-center"><PlatformLogo platformKeyOrName="stocktwits" size={14} /></div>
                       <h2 className="text-[15px] font-semibold text-ink-900 tracking-tight">Stocktwits · 股票情绪监测</h2>
-                      <span className="text-[12px] text-ink-400">{stocktwitsRecords.length} 只股票</span>
+                      <span className="text-[12px] text-ink-400">{stockMonitorList.length} 只股票</span>
                     </div>
+                    {isAdmin && (
+                      <button onClick={() => { setAdminInitialTab('stocks'); setPageView('admin'); }} className="h-9 px-3.5 rounded-xl bg-gradient-to-r from-violet-600 via-indigo-600 to-indigo-700 hover:brightness-105 text-white text-[12.5px] font-semibold flex items-center gap-1.5 shadow-sm"><Plus size={13} />添加监控股票</button>
+                    )}
                   </div>
-                  {stocktwitsRecords.length > 0 ? (
-                    <motion.div variants={STAGGER} initial="hidden" whileInView="show" viewport={{ once: true }} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {stocktwitsRecords.map((r) => <StocktwitsCard key={`st-${r.account}`} r={r} onOpenDetail={setDetailRecord} onNavigateOperator={navigateToOperator} />)}
-                    </motion.div>
+                  {stockMonitorList.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {stockMonitorList.map((r, idx) => <StocktwitsCard key={`st-${r.account || r.id}`} r={r} idx={idx} onOpenDetail={setDetailRecord} onNavigateOperator={navigateToOperator} />)}
+                    </div>
                   ) : (
                     <motion.div variants={FADE_UP} className="rounded-2xl border border-dashed border-[#4263EB]/20 bg-[#4263EB]/[0.03] p-6 flex flex-col sm:flex-row items-center gap-4">
                       <div className="w-12 h-12 rounded-2xl bg-[#4263EB]/10 flex items-center justify-center shrink-0"><TrendingUp size={22} className="text-[#4263EB]" /></div>
                       <div className="min-w-0 flex-1 text-center sm:text-left">
-                        <div className="text-[14px] font-semibold text-ink-900">未监测到 Stocktwits 股票账号</div>
-                        <div className="text-[12px] text-ink-500 mt-1">打开采集器插件并访问 Stocktwits 股票页（<span className="font-mono">stocktwits.com/symbol/AAPL</span>），账号将自动入库并显示情绪指标。</div>
+                        <div className="text-[14px] font-semibold text-ink-900">尚未添加任何股票到官方监控清单</div>
+                        <div className="text-[12px] text-ink-500 mt-1">{isAdmin ? '点击右上角「+ 添加监控股票」按钮添加股票代码；采集插件持有人浏览对应 Stocktwits 页面≥3秒时，会自动回填情绪和最新帖子数据（严格方案 A：清单外股票一律禁止入库）。' : '请联系管理员添加需要监控的股票代码，清单内股票才会显示在这里。'}</div>
                       </div>
-                      <button onClick={() => setShowDownloads(true)} className="h-9 px-3.5 rounded-xl bg-[#4263EB] hover:bg-[#3551c5] text-white text-[12.5px] font-semibold flex items-center gap-1.5 shrink-0"><Download size={13} />获取采集器</button>
+                      {!isAdmin && (
+                        <button onClick={() => setShowDownloads(true)} className="h-9 px-3.5 rounded-xl bg-[#4263EB] hover:bg-[#3551c5] text-white text-[12.5px] font-semibold flex items-center gap-1.5 shrink-0"><Download size={13} />获取采集器</button>
+                      )}
                     </motion.div>
                   )}
                 </motion.div>
               )}
 
-              {redditRecords.length > 0 && (
+              {(redditMonitorList.length > 0 || isAdmin) && (
                 <motion.div variants={STAGGER} initial="hidden" whileInView="show" viewport={{ once: true, amount: 0.25 }} className="mb-6">
                   <div className="flex items-center justify-between mb-3.5">
                     <div className="flex items-center gap-2.5">
                       <div className="w-7 h-7 rounded-xl bg-[#FF4500]/10 flex items-center justify-center"><PlatformLogo platformKeyOrName="reddit" size={15} /></div>
                       <h2 className="text-[15px] font-semibold text-ink-900 tracking-tight">Reddit · 社区活跃度监测</h2>
-                      <span className="text-[12px] text-ink-400">{redditRecords.length} 个 Subreddit</span>
+                      <span className="text-[12px] text-ink-400">{redditMonitorList.length} 个 Subreddit</span>
                     </div>
+                    {isAdmin && (
+                      <button onClick={() => { setAdminInitialTab('communities'); setPageView('admin'); }} className="h-9 px-3.5 rounded-xl bg-gradient-to-r from-orange-500 via-rose-500 to-red-500 hover:brightness-105 text-white text-[12.5px] font-semibold flex items-center gap-1.5 shadow-sm"><Plus size={13} />添加监控社区</button>
+                    )}
                   </div>
-                  <motion.div variants={STAGGER} initial="hidden" whileInView="show" viewport={{ once: true }} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {redditRecords.map((r) => <RedditCard key={`rd-${r.account}`} r={r} onOpenDetail={setDetailRecord} onNavigateOperator={navigateToOperator} />)}
-                  </motion.div>
+                  {redditMonitorList.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {redditMonitorList.map((r, idx) => <RedditCard key={`rd-${r.account || r.id}`} r={r} idx={idx} onOpenDetail={setDetailRecord} onNavigateOperator={navigateToOperator} />)}
+                    </div>
+                  ) : (
+                    <motion.div variants={FADE_UP} className="rounded-2xl border border-dashed border-[#FF4500]/20 bg-[#FF4500]/[0.03] p-6 flex flex-col sm:flex-row items-center gap-4">
+                      <div className="w-12 h-12 rounded-2xl bg-[#FF4500]/10 flex items-center justify-center shrink-0"><MessageSquare size={22} className="text-[#FF4500]" /></div>
+                      <div className="min-w-0 flex-1 text-center sm:text-left">
+                        <div className="text-[14px] font-semibold text-ink-900">尚未添加任何 Reddit 社区到官方监控清单</div>
+                        <div className="text-[12px] text-ink-500 mt-1">{isAdmin ? '点击右上角「+ 添加监控社区」按钮添加 Subreddit（社区），不是个人账号；采集插件持有人浏览对应 reddit.com/r/xxx 页面≥3秒时，会自动回填最新讨论与热度（严格方案 A：清单外社区一律禁止入库）。' : '请联系管理员添加需要监控的 Reddit 社区，清单内社区才会显示在这里。'}</div>
+                      </div>
+                      {!isAdmin && (
+                        <button onClick={() => setShowDownloads(true)} className="h-9 px-3.5 rounded-xl bg-[#FF4500] hover:brightness-95 text-white text-[12.5px] font-semibold flex items-center gap-1.5 shrink-0"><Download size={13} />获取采集器</button>
+                      )}
+                    </motion.div>
+                  )}
                 </motion.div>
               )}
 
@@ -6646,7 +7939,20 @@ export default function App() {
                   <div className="h-[280px] sm:h-[320px]">
                     {loading && !data ? (
                       <div className="h-full flex items-center justify-center"><RefreshCw size={20} className="animate-spin text-ink-300" /></div>
-                    ) : <TrafficPie data={scopeDerivedCharts ? scopeDerivedCharts.platformTraffic : (data?.platformTraffic || [])} activeName={activePie} setActiveName={setActivePie} onNavigatePlatform={navigateToPlatform} />}
+                    ) : (() => {
+                      const rawPie = scopeDerivedCharts ? scopeDerivedCharts.platformTraffic : (data?.platformTraffic || []);
+                      const platformList = Object.values(PLATFORM_META);
+                      const normalized = platformList.map(meta => {
+                        const hit = rawPie.find(p => (p.key && p.key === meta.key) || p.name === meta.name || (p.platform && p.platform === meta.key));
+                        return {
+                          key: meta.key,
+                          name: meta.name,
+                          value: hit?.value != null ? Number(hit.value) : 0,
+                          color: hit?.color || meta.color,
+                        };
+                      });
+                      return <TrafficPie data={normalized} activeName={activePie} setActiveName={setActivePie} onNavigatePlatform={navigateToPlatform} />;
+                    })()}
                   </div>
                 </motion.div>
               </motion.div>

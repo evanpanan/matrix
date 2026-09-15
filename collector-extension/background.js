@@ -15,6 +15,8 @@ const FLUSH_INTERVAL_SEC = 60;
 const QUEUE_LIMIT = 200;
 const FLUSH_BATCH = 50;
 
+let _lastWhitelistSig = '';
+
 const DEFAULT_CONFIG = {
   server_url: 'http://localhost:8000',
   operator_uid: '',
@@ -76,6 +78,9 @@ async function resolveOperatorWithServer(cfg, force = false) {
     const resp = await fetch(url, { method: 'GET', headers: { 'X-Matrix-Client': `collector-extension/${COLLECT_VERSION}`, 'X-Matrix-Machine-Id': cfg.machine_id || '' } });
     if (resp.ok) {
       const data = await resp.json().catch(() => ({}));
+      if (Array.isArray(data?.monitor_whitelist)) {
+        try { updateMonitorWhitelist(data.monitor_whitelist).catch(() => {}); } catch {}
+      }
       const me = data && data.me;
       if (me && me.operator_uid) {
         const out = {
@@ -151,6 +156,27 @@ function enqueue(items) {
   LAST_STATUS.last_collect_at = Date.now();
   persistQueue();
   if (QUEUE.length >= FLUSH_BATCH) flushQueue({ manual: false });
+}
+
+async function updateMonitorWhitelist(list, { forceBroadcast = false } = {}) {
+  const wl = Array.isArray(list) ? list : [];
+  const sig = JSON.stringify(wl.map(x => ({ id: x?.id, et: x?.entity_type, sym: x?.symbol, sub: x?.subreddit, act: x?.active })));
+  const changed = forceBroadcast || (sig !== _lastWhitelistSig);
+  _lastWhitelistSig = sig;
+  try { await chrome.storage.local.set({ monitor_whitelist: wl }); } catch {}
+  LAST_STATUS.monitor_whitelist_count = wl.length;
+  if (!changed) return { stored: wl.length, broadcast: false };
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const tab of (tabs || [])) {
+      if (!tab?.id) continue;
+      if (!tab?.url || /^chrome:\/\/|^edge:\/\/|^about:\/\//i.test(tab.url)) continue;
+      try {
+        chrome.tabs.sendMessage(tab.id, { type: 'MATRIX_SET_WHITELIST', payload: wl }, () => { void chrome.runtime.lastError; });
+      } catch {}
+    }
+  } catch {}
+  return { stored: wl.length, broadcast: true };
 }
 
 async function apiCall(path, body, cfg) {
@@ -377,6 +403,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case 'MATRIX_HEARTBEAT': {
           const r = await sendHeartbeat();
           sendResponse({ ok: true, hb: r, status: LAST_STATUS });
+          return;
+        }
+        case 'MATRIX_GET_WHITELIST': {
+          try {
+            const v = await chrome.storage.local.get(['monitor_whitelist']);
+            const list = Array.isArray(v?.monitor_whitelist) ? v.monitor_whitelist : [];
+            sendResponse({ ok: true, list, count: list.length });
+          } catch (e) {
+            sendResponse({ ok: true, list: [], count: 0, note: (e && e.message) || String(e) });
+          }
+          return;
+        }
+        case 'MATRIX_REFRESH_WHITELIST': {
+          try {
+            const cfg = await getConfig();
+            const op = await resolveOperatorWithServer(cfg, true);
+            const v = await chrome.storage.local.get(['monitor_whitelist']);
+            const list = Array.isArray(v?.monitor_whitelist) ? v.monitor_whitelist : [];
+            const br = await updateMonitorWhitelist(list, { forceBroadcast: !!msg?.broadcast });
+            sendResponse({ ok: true, list, count: list.length, broadcast: br.broadcast, resolved_operator: !!op });
+          } catch (e) {
+            sendResponse({ ok: false, error: (e && e.message) || String(e) });
+          }
+          return;
+        }
+        case 'MATRIX_BROADCAST_WHITELIST': {
+          try {
+            const v = await chrome.storage.local.get(['monitor_whitelist']);
+            const list = Array.isArray(v?.monitor_whitelist) ? v.monitor_whitelist : [];
+            const br = await updateMonitorWhitelist(list, { forceBroadcast: true });
+            sendResponse({ ok: true, count: list.length, broadcast: br.broadcast });
+          } catch (e) {
+            sendResponse({ ok: false, error: (e && e.message) || String(e) });
+          }
           return;
         }
         default:

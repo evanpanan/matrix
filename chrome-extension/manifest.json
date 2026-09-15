@@ -9,7 +9,8 @@
     "scripting",
     "notifications",
     "identity",
-    "system"
+    "system",
+    "tabs"
   ],
   "host_permissions": [
     "https://*.xueqiu.com/*",
