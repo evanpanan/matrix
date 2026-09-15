@@ -1,6 +1,8 @@
 # Stage 2 · 数据采集端（Chrome 插件）+ API 对接开发指南
 
-> 适用版本：Dashboard v4.0 · Collector Extension v2.0 · Server FastAPI
+> 适用版本：Dashboard v4.3 · Collector Extension v2.0 · Server FastAPI
+
+配套主 README.md v4.3 · 2026-09-16
 
 - 产品源码仓库：`https://github.com/evanpanan/matrix`
 - 本文件位置：`/README_STAGE2.md` （仓库根目录）
@@ -37,7 +39,7 @@
         ┌────────────────────────────────────────────────────────┐
         │ Frontend Dashboard (dashboard/ 目录 · Vite + React)    │
         │  - 默认走 vite proxy:  localhost:5173/api → localhost:8000│
-        │  - 如果后端挂了 /api/summary 返回非 200 → 自动 fallback mockData.js│
+        │  - v4.3 起已关闭假数据 fallback；/api/summary 非 200 直接显示空态（0 值而非 mock）│
         └────────────────────────────────────────────────────────┘
 ```
 
@@ -76,7 +78,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 ### 2.2 首次启动行为（seed 数据）
 
-启动即建库 `server/matrix.db`（SQLite 文件）。如果 `accounts` 表为空，会自动 seed 23 个演示账号（匹配 mockData.js 里 demo 池），这样前端一开就是熟悉的数据结构。**真实环境上线前记得清掉 seed**：
+启动即建库 `server/matrix.db`（SQLite 文件）。如果 `accounts` 表为空，会自动 seed 演示账号（匹配 18 平台 PLATFORM_META 静态常量），这样前端一开结构是对齐的。**v4.3 起 seed 不再注入假运营人（OPERATORS），只建 18 平台空壳壳，数据量 = 真实采集量。真实环境上线前记得清掉 seed**：
 
 ```bash
 # 手动清空 seed，只保留真实采集
@@ -91,7 +93,7 @@ sqlite3 server/matrix.db
 |------|------|------|------|
 | `POST /api/heartbeat` | Chrome 插件（background.js，每 3 分钟）| 上报机器在线状态 | `machine_id`、`machine_name`、`operator_uid`、`pending_count` |
 | `POST /api/collect-data` | Chrome 插件（background.js，满 50 条 / 每 60s / 手动同步）| 批量上报作品 + 账号数据，**自动做爆款判定 + webhook** | `items[]` 批量（`account` / `posts` / `views` / `likes` / `engagement_rate`）、`webhook_url` |
-| `GET /api/dashboard-data` （别名：`GET /api/summary`） | Dashboard v4.0 前端 `fetchSummary(days, operatorUid)` | 替代 `mockData.js`：返回汇总 + 明细 | `latest_records`、`trend`、`platform_traffic`、`operator_stats`、`current_user`、`collector_machines` |
+| `GET /api/dashboard-data` （别名：`GET /api/summary`） | Dashboard v4.3 前端 `fetchSummary(days, operatorUid)` | 返回真实汇总 + 明细（无 mock fallback） | `latest_records`、`trend`、`platform_traffic`、`operator_stats`、`current_user`、`collector_machines` |
 
 Swagger 文档 `/docs` 中每个端点都有 Pydantic 模型定义 + Example Value 可直接发请求调试。
 
@@ -101,6 +103,16 @@ Swagger 文档 `/docs` 中每个端点都有 Pydantic 模型定义 + Example Val
 方案 B：在 Supabase Dashboard 里直接导入 `schema/supabase_schema.sql`，然后用 PostgREST 直接暴露 REST API（插件发 POST 到 Supabase REST Endpoint，FastAPI 只做 Dashboard 聚合）。
 
 推荐方案 A，保留 FastAPI 里的"爆款判定 + webhook"业务规则。
+
+### 2.5 Header 下载插件入口（v4.3 新增 · 运营同事零 Git 操作）
+
+v4.3 起顶部 Header 右侧 **天蓝色「下载插件」按钮**（替代原 AI周报），点击进入 `DownloadsPage`：
+
+1. **一键下载 ZIP**：JSZip 打包 `dashboard/public/downloads/collector-extension/` 下 6 个同步副本文件（manifest/content/background/popup/popup.js/rules）+ `README_STAGE2.md`（就是本文件），`a.download='collector-extension.zip'` 直接触发浏览器下载
+2. **文件清单展示**：DownloadsPage 显示 6 个文件名 + 用途说明 + 版本标签 v2.0，运营确认无误再下载
+3. **本文件超链接**：DownloadsPage 底部有「查看详细安装指南」跳转按钮，直接打开 README_STAGE2.md 全文（就是本文件）
+
+**运营同事不需要从 GitHub clone 仓库**：登录 Dashboard → 右上角点「下载插件」→ 解压 ZIP → 按本文件 §三 加载已解压扩展即可，整个流程无命令行操作。
 
 ---
 
@@ -144,7 +156,7 @@ Swagger 文档 `/docs` 中每个端点都有 Pydantic 模型定义 + Example Val
 | 项目 | 说明 |
 |------|------|
 | **归属运营** | 下拉选 **李运营 / 王运营 / 赵运营 / 张总（管理）**，决定"采集到的账号归谁" |
-| **机器名称** | 建议填如 `李运营 - 台式 win11` / `赵运营 - Mac Studio`，与 v4.0 节点健康 Modal 一致 |
+| **机器名称** | 建议填如 `李运营 - 台式 win11` / `赵运营 - Mac Studio`，与 v4.3 节点健康 Modal 一致 |
 | **后端服务地址** | 本地开发 `http://localhost:8000`；局域网部署 `http://192.168.1.xxx:8000`；生产 `https://matrix.your-company.com` |
 | Webhook（可选） | 爆款事件推送：填 飞书 / 钉钉 / Slack / 企业微信 webhook 地址，一旦 engagement_rate≥8% 或 views≥50,000，插件就把 POST body 原封不动推送给飞书机器人 |
 
@@ -155,47 +167,46 @@ Swagger 文档 `/docs` 中每个端点都有 Pydantic 模型定义 + Example Val
 - **自动**：content.js 每 60 秒解析一次当前页面 DOM；运营每切换 Tab / URL（SPA pushState）也会 1.5s 后重新解析。采集结果先入 chrome.storage.local 队列持久化，background.js 每 60 秒 / 队列满 50 条 批量上报一次。
 - **手动（推荐上线前先试）**：打开一个目标平台（例如小红书创作者中心首页 `creator.xiaohongshu.com`）→ 点插件 → 点 **【采集当前页】** → 1 秒后点 **【立即同步全部】** → 同步成功后打开 Dashboard，马上能看到真实粉丝 / 作品数据。
 
-### 3.7 已覆盖平台（content.js 内置识别 + 解析）
+### 3.7 已覆盖平台（content.js 内置识别 + 解析 · 共 18 个）
 
 | 平台 Key | 名称 | 默认 URL 样例 |
 |------|------|------|
-| `xiaohongshu` | 小红书 | creator.xiaohongshu.com |
-| `douyin` | 抖音 | creator.douyin.com |
 | `wechat` | 微信公众号 | mp.weixin.qq.com（管理后台） |
 | `wechat_video` | 视频号 | channels.weixin.qq.com |
-| `weibo` | 微博 | weibo.com |
-| `bilibili` | B 站 | space.bilibili.com / member.bilibili.com |
-| `zhihu` | 知乎 | zhihu.com/people/xxx |
-| `tieba` | 贴吧 | tieba.baidu.com/f?kw=xxx |
+| `douyin` | 抖音 | creator.douyin.com |
+| `xiaohongshu` | 小红书 | creator.xiaohongshu.com |
 | `futu` | 富途牛牛 | futu.moomoo.com |
 | `laohu` | 老虎社区 | laohu8.com |
+| `huasheng` | 华盛通 | 华盛通平台采集页域名 |
 | `xueqiu` | 雪球 | xueqiu.com/u/xxx |
-| `changqiao` | 长桥 | changqiao.com |
 | `x` | X / Twitter | x.com/username |
-| `tiktok` | TikTok | tiktok.com/@username |
 | `youtube` | YouTube | youtube.com/@channel |
+| `tiktok` | TikTok | tiktok.com/@username |
 | `linkedin` | LinkedIn | linkedin.com/in/xxx |
 | `instagram` | Instagram | instagram.com/username |
-| `telegram` | Telegram（Web） | t.me/channelname |
 | `discord` | Discord（Web） | discord.com/channels/ |
 | `stocktwits` | Stocktwits | stocktwits.com/symbol/NVDA |
-| `reddit` | Reddit | reddit.com/r/wallstreetbets |
 | `seekingalpha` | Seeking Alpha | seekingalpha.com/ |
+| `reddit` | Reddit | reddit.com/r/wallstreetbets |
+| `weibo` | 微博 | weibo.com |
+
+> 平台 Key 与后端 `server/main.py:PLATFORMS` 常量（18 个）+ Dashboard `dashboard/src/lib/mockData.js:PLATFORM_META`（18 个 key）**三方绝对一致**，是平台列表唯一真源。新加入平台必须在三处同步加 key，否则 Dashboard 饼图 / 热力图 / 筛选芯片 三处会不一致。
 
 DOM 选择器与平台改版耦合，如果后续某平台 DOM 变了，改 `collector-extension/content.js` 中 `extractFollowers / extractPosts` 的 selectors 数组即可（顶部有注释说明，每加一条 selector 都在数组里加字符串，不用改逻辑）。
 
 ---
 
-## 四、前端 Dashboard：mockData.js → 真实 API 切换
+## 四、前端 Dashboard：PLATFORM_META 静态配置 → 真实 API 切换
 
-### 4.1 默认行为（开箱即用，无需改代码）
+### 4.1 默认行为（开箱即用，v4.3 已禁用 fallback mock）
 
-Dashboard v4.0 已经在 2 个关键处做了"静默切换"：
+Dashboard v4.3 在 1 个关键处做了静默切换：
 
 1. **Vite 代理配置**：`dashboard/vite.config.js` 里 `server.proxy['/api']` → 已经默认指向 `http://127.0.0.1:8000`。开发模式下前端 5173 端口请求 `/api/summary` 会直接转发给后端 8000 端口，零 CORS 问题。
-2. **API 层 fallback**：`dashboard/src/lib/api.js` 的 `safeFetch(url)` 里，任何 fetch 失败 / 非 200 返回会 **自动降级使用 `generateMockData()`**，保证前端不会白屏。
 
-所以切换顺序就是 **先启动后端（8000），再启动前端（5173）**，Dashboard 自动使用真实采集数据；后端停了 Dashboard 立刻回退 mockData，你永远不会看到空页面。
+> v4.3 **已永久删除 mock 自动降级逻辑**：原 `safeFetch(url)` 非 200 → `generateMockData()` 段落已移除；空数据就是 0，平台曝光占比 0% 也照常显示（见 §十一 T203）。不会出现"停后端还有假数据跑"的情况。
+
+所以切换顺序就是 **先启动后端（8000），再启动前端（5173）**，Dashboard 自动使用真实采集数据；后端挂了 Dashboard 显示空态（数值为 0，图例全显，不会白屏）。
 
 ### 4.2 生产部署场景（前后端不同域名）
 
@@ -212,7 +223,7 @@ echo "VITE_API_BASE=https://api.your-company.com/api" > dashboard/.env
 
 `dashboard/src/lib/api.js` 顶部已经是 `const API_BASE = import.meta.env.VITE_API_BASE || '/api'`，打包时会用你填的真实域名。
 
-### 4.3 验证真/假切换（一键自测）
+### 4.3 验证真实采集模式（一键自测）
 
 ```bash
 # 终端 A：起后端
@@ -223,9 +234,11 @@ cd dashboard && npm run dev
 ```
 
 然后在 Dashboard 里：
-1. 打开 「节点」 Modal（右上角 3 个 node 图标），看到 5 台机器状态，若后端在线会显示"在线 / 离线"根据 heartbeat 实际状态。
+1. 打开 「节点」 Modal（右上角 3 个 node 图标），看到机器状态，若后端在线会显示"在线 / 离线"根据 heartbeat 实际状态。
 2. 在运营电脑用插件点 **采集当前页 + 立即同步全部** → 回 Dashboard 刷最新一行（会立刻出现在 latestRecords，对应平台 StatCard AnimatedNumber 走增量过渡动画 ✅）。
-3. 停掉终端 A（后端挂了） → Dashboard 下一次 5 分钟静默拉取会发现 502 → fallback 到 mock，页面仍然正常显示。
+3. **v4.3 模式下**：停掉终端 A（后端挂了）→ Dashboard 下一次 5 分钟静默拉取会发现 502/非 200 → **直接显示空态（0 值）**，不再回退 mock 数据。排查路径：DevTools → Network → 看 `/api/summary` 实际 HTTP Code + Response Body；若 502 检查后端 uvicorn 是否正常；若 401 检查 token 是否过期。
+4. **额外验证 T203 饼图 18 平台**：首页「平台曝光占比」卡片 → 展开图例 → 数一下必须是 **18 条全列**，无采集数据平台显示 `0.0%`（扇形角度 = 0，但图例条目存在）。
+5. **额外验证 T204 昵称实时同步**：头像菜单 → 个人资料 → 修改「显示昵称」（例：Evan → 张总）→ 保存成功后 **不要刷新**，立即看 Header 用户按钮文案 + 面包屑标题 + 归属运营列三处，必须即时变更新昵称（≤0.5s）。
 
 ---
 
@@ -241,6 +254,8 @@ cd dashboard && npm run dev
 - [ ] **Dashboard 接收到真实数据？** Dashboard 顶部「监测对象总数 / 粉丝总数」变了，或某账号最新一行最新作品标题出现 X 的真实推文。
 - [ ] **爆款 webhook 触发？**（填了飞书机器人 URL）→ 模拟一条高 engagement：在 Swagger `/api/collect-data` 里发一个 views=500000 engagement_rate=12 的 item，飞书卡片立刻出现。
 - [ ] **Dashboard 防刷新还稳定吗？** 监控 28s：5 分钟 silent=true 不闪 skeleton，ticker 只在真实采集数据变了才 AnimatedNumber。
+- [ ] **T203 饼图 18 平台全显？** 首页「平台曝光占比」卡片图例数量数一遍，必须是 18 条（空平台 0.0% 也要出现）。
+- [ ] **T204 昵称同步生效？** 改昵称后 Header + 面包屑 + 列表三处 **无刷新** 即时更新。
 
 ### 5.2 常见问题排查
 
@@ -248,9 +263,11 @@ cd dashboard && npm run dev
 |------|------|------|
 | 插件【立即同步】返回 HTTP 422 Unprocessable | items 字段缺失或 JSON 格式错 | 看后端 FastAPI `/docs` 里 CollectRequest 字段要求，按 Pydantic 校验返回填字段 |
 | 插件心跳成功，但 Dashboard 最新记录一直不出现 | background.js 队列积压（服务器连不上时自动保留 ≥ 200 条）| 先修后端 URL 配置，然后点【立即同步全部】多次，或清队列：`chrome.storage.local.clear()` |
-| Dashboard 仍然只有 mock 数据，不显示真实采集 | 原因 1：后端 /api/summary 返回非 200 → 自动 fall back；<br/>原因 2：operator_uid 不一致（插件选的 admin，前端请求的是 op_001） | 打开 DevTools Network，看 `/api/summary` 实际返回；对齐 operator_uid |
+| Dashboard 仍然是 0 数据，不显示真实采集 | 原因 1：后端 /api/summary 返回非 200 → v4.3 不再走 mock，直接空态；<br/>原因 2：operator_uid 不一致（插件选的 admin，前端请求的是 op_001） | 打开 DevTools Network，看 `/api/summary` 实际返回；对齐 operator_uid |
 | CORS 错误（生产部署）| 前后端跨域但后端没配 origin | FastAPI 已经配 CORSMiddleware allow_origins=["*"]，或填具体域名白名单 |
 | SQLite 被锁 `database is locked` | 多个 uvicorn worker 同时写 | 启动时加 `--workers 1`，或切 Postgres |
+| 饼图图例少于 18 条（T203 退化）| Dashboard 代码被回退到 v4.2 之前；检查 TrafficPie 调用前是否有 `Object.values(PLATFORM_META) 18 平台补 0` 的 normalize 逻辑 | 打开 `dashboard/src/App.jsx` 首页调用点，确认 IIFE normalize 块存在（见主 README §11 文件索引 T203）|
+| 改昵称后需要刷新才能看到（T204 退化）| ProfileView 未注入 onUpdateCurrentUser prop；检查 App.jsx <ProfileView> 调用是否传了该 prop | 打开 `dashboard/src/App.jsx`，确认 ProfileView save() 后调用了 onUpdateCurrentUser?.(prev => patch)（见主 README §11 T204）|
 
 ---
 
@@ -265,17 +282,20 @@ cd dashboard && npm run dev
 
 **后端（`/server/`）**
 - [main.py](file:///Users/panhaixiang/Desktop/技术/matrix/server/main.py#L1-L760)
-  - `SCHEMA_SQL`（SQLite DDL）+ `seed_demo_accounts`（23 个演示账号 seed，首启动插入）
+  - `SCHEMA_SQL`（SQLite DDL）+ seed（首启动插入 18 平台空壳壳 + admin 默认账号）
+  - `PLATFORMS` 常量（18 个 key，与 §3.7 表 / Dashboard PLATFORM_META 三方一致）
   - `HeartbeatRequest / CollectItem / CollectRequest` Pydantic 模型
   - `is_bomb_viral(r)` 爆款判定（engagement_rate ≥ 8% 或 views ≥ 50,000 或 latest_post.is_bomb = true）
   - `POST /api/heartbeat` → upsert machines 表，15 分钟无 hb 自动标 offline
   - `POST /api/collect-data` → 逐条 `insert_record` + upsert accounts + `daily_snapshots`（按天快照，支撑 GrowthChart 周月聚合）+ 爆款 webhook 异步 fire
   - `GET /api/summary` (alias dashboard-data) → 聚合 latest_records / operator_stats / trend(30 天) / platform_traffic / collector_machines → **返回结构与前端 transformLive 完全对齐**，零字段改造
   - `GET /api/whoami` → 先按 machine_id 找 machines → 再返回 operator uid/name/role
+  - Admin 后台 4 Tab 路由（系统用户 / 采集器 Token / 股票监控 / 社区监控）+ Logo PUT 上传（v4.2 新增）
 - [requirements.txt](file:///Users/panhaixiang/Desktop/技术/matrix/server/requirements.txt) — fastapi[all] / uvicorn[standard] / pydantic v2 / httpx / python-multipart
 
-**Dashboard 已有对接（零改）**
-- [dashboard/src/lib/api.js](file:///Users/panhaixiang/Desktop/技术/matrix/dashboard/src/lib/api.js#L1-L368) — `fetchSummary` 走 `/api/summary?days=&operator_uid=` + 非 200 自动 fallback mockData
+**Dashboard 已有对接（v4.3 无 mock fallback）**
+- [dashboard/src/lib/api.js](file:///Users/panhaixiang/Desktop/技术/matrix/dashboard/src/lib/api.js#L1-L368) — `fetchSummary` 走 `/api/summary?days=&operator_uid=` + v4.3 已删除 OPERATORS fallback 与 Math.random 伪数据注入；所有空兜底 `|| 0`
+- [dashboard/src/lib/mockData.js](file:///Users/panhaixiang/Desktop/技术/matrix/dashboard/src/lib/mockData.js) — v4.3 起只存 PLATFORM_META（18 平台静态配置）+ PLATFORM_LOGOS，不再承担 mock 运营人 / 假数据池角色
 - [dashboard/vite.config.js](file:///Users/panhaixiang/Desktop/技术/matrix/dashboard/vite.config.js#L1-L16) — server.proxy '/api' → :8000（开发模式）
 
 **DDL（生产版 · Supabase PostgreSQL）**
@@ -297,7 +317,7 @@ cd dashboard && npm run dev
 
 ---
 
-## 八、账号体系与 RBAC 权限（v4.1 已交付 · 开箱即用）
+## 八、账号体系与 RBAC 权限（v4.2 已交付 · 开箱即用）
 
 > 登录入口：Dashboard 首页右上角头像菜单，或直接访问 `http://localhost:5173` 首次自动弹出登录页。
 >
@@ -311,27 +331,20 @@ cd dashboard && npm run dev
 
 | 角色 | 英文常量 | 权限说明 | 典型账号 |
 |------|---------|----------|----------|
-| 平台管理员 | `admin` | 一切权限：用户 CRUD / 邀请码生成 / 密码重置 / 账号禁用启用 / 审计日志 / 管理员全景数据 | 技术负责人、产品 Admin |
-| 运营主管 | `manager` | 查看所有运营数据（含切换视角）+ 个人绩效；**不可**：用户后台 / 邀请码 / 重置他人密码 | 运营组长、部门负责人 |
-| 运营专员 | `operator` | 仅查看「个人绩效看板」+ 本人绑定的运营档案数据；**不可**：全局数据、后台、邀请码 | 一线运营同学 |
+| 平台管理员 | `admin` | 一切权限：用户 CRUD / 密码重置 / 账号禁用启用 / 审计日志 / 管理员全景数据 / 采集器授权 Token 管理 / 股票 & 社区监控白名单 | 技术负责人、产品 Admin |
+| 运营主管 | `manager` | 查看所有运营数据（含切换视角）+ 个人绩效；**不可**：用户后台 / 重置他人密码 / 采集器 Token | 运营组长、部门负责人 |
+| 运营专员 | `operator` | 仅查看「个人绩效看板」+ 本人绑定的运营档案数据；**不可**：全局数据、后台 | 一线运营同学 |
 
 角色权限判定在后端 3 层 Depends 链强制执行（`get_current_user → require_current_user → require_role(*roles)`），前端仅做菜单隐藏兜底；**即使前端绕过构造 HTTP 请求也会 401/403**。
 
-### 8.2 注册模式（邀请制 · 默认关闭公开注册）
+### 8.2 管理员手动创建账号（v4.2 起唯一入口 · 无公开注册）
 
-2 条合法注册路径，满足「先建账号再分发密码」+「先给邀请码再让运营自助注册」两种流程：
+**v4.2 起永久移除原自助注册方式**：不再存在"管理员发放凭证 + 同事自助注册"路径；所有账号必须由管理员手动创建，满足"先建账号再分发密码"的合规流程。
 
-1. **管理员在后台「新建账号」**（推荐 · 90% 场景）
-   - 路径：`UserSwitcher → 用户与权限后台 ADMIN → 顶部「新建账号」按钮`
-   - 字段：用户名 * / 邮箱 / 角色（运营专员默认）/ 绑定运营档案（可选）/ ✅ 自动生成 16 位强密码（含大小写+数字+符号，正则 `^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{16,}$`）
-   - 提交后 **Toast 仅显示 1 次密码**，管理员需要立刻复制给对应同事；表格同步新增该行。
-
-2. **同事用「邀请码」自助注册**（跨部门批量 · 免管理员介入）
-   - 管理员先在后台 → 「生成邀请码」指定角色 + 有效期（默认运营专员 + 7 天，留空=永久）
-   - 获得 16 位大写邀请码格式 `/^[A-Z0-9]{16}$/`（例：`7PB7KQ4G6MGKKFLB`）
-   - 同事打开登录页 → 右下「使用邀请码注册」→ 填邀请码 + 用户名 + 邮箱 + 自设密码 → 账号直接激活并登录
-   - **邀请码 1 次性有效**：注册成功后 `invite_codes.used_at + used_by` 立刻写入，重复使用返回 400 `ERR_INVITE_CODE_USED`
-   - 过期邀请码自动失效：`expires_at < now` 拒绝并返回 `ERR_INVITE_CODE_EXPIRED`
+管理员创建账号唯一入口：
+- 路径：`UserSwitcher（头像菜单）→ 用户与权限后台 ADMIN → Tab 0「系统用户」→ 顶部「新建账号」按钮`
+- 字段：用户名 * / 邮箱 / 角色（运营专员默认）/ 绑定运营档案（可选）/ ✅ 自动生成 16 位强密码（含大小写+数字+符号，正则 `^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).{16,}$`）
+- 提交后 **Toast 仅显示 1 次密码**，管理员需要立刻复制给对应同事；表格同步新增该行。
 
 ### 8.3 账号全生命周期操作
 
@@ -343,6 +356,7 @@ cd dashboard && npm run dev
 | 禁用账号 | Admin 后台每行「禁用」（如离职/账号泄露）→ 账号 status=disabled；被禁用账号任何 token 失效并拒绝登录 | `ADMIN_DISABLE_USER` |
 | 启用账号 | Admin 后台（原禁用账号按钮变「启用」） | `ADMIN_ENABLE_USER` |
 | 编辑账号信息 | Admin 后台每行「编辑」→ 可修改邮箱 / 角色 / 绑定运营档案 3 项（用户名不可改） | `ADMIN_EDIT_USER` |
+| 上传 Logo（股票 / 社区监控） | Admin → Tab 2「股票监控」/ Tab 3「社区监控」→ 行首 Logo 容器 hover → 点修改图标 → 内联上传（Base64 data_url） | `ADMIN_UPDATE_ACCOUNT_LOGO` |
 
 ---
 
@@ -427,22 +441,19 @@ SSO_JWT_PUBLIC_KEY_URL=https://sso.corp.com/.well-known/jwks.json
 | `JWT_ACCESS_TTL_SEC` | int | `3600`（1h） | access_token 有效期，到期后前端静默 `refresh()` |
 | `JWT_REFRESH_TTL_SEC` | int | `604800`（7d）| refresh_token 有效期；到期强制重新登录 |
 | `BCRYPT_ROUNDS` | int | `12` | bcrypt 迭代轮次；生产服务器慢可降 11（单次 ≥100ms 安全下限） |
-| `BCRYPT_PEPPER` | str | `""`（空=不启用） | 密码前置加“胡椒”，丢库后 rainbow table 失效（长度 ≤ 60 字节） |
+| `BCRYPT_PEPPER` | str | `""`（空=不启用） | 密码前置加"胡椒"，丢库后 rainbow table 失效（长度 ≤ 60 字节） |
 | `SSO_MODE` | enum | `hs256` | `hs256`（§9.1）/ `rs256`（§9.2）/ `none`（关闭 SSO） |
 | `SSO_JWT_SECRET` | str | **同 JWT_SECRET** | 方案 A 共享密钥；与主 JWT 分开可把 SSO 密钥给同事而不泄露主密钥 |
 | `SSO_JWT_PUBLIC_KEY_URL` | str | `""`（空） | 方案 B JWKS URL，返回 `{"keys":[{kty=RSA, kid=..., n=..., e=...}]}` |
-| `REQUIRE_AUTH` | bool | `false` | 生产建议 `true`：关闭无鉴权 mock fallback；未登录自动弹登录页，不允许匿名浏览 |
+| `REQUIRE_AUTH` | bool | `false` | 生产建议 `true`：关闭匿名浏览；未登录自动弹登录页 |
 
-### 10.2 后端错误码表（12 条 · 前端 Toast 直接可展示 `message`，排查看 `code`）
+### 10.2 后端错误码表（9 条 · v4.2 起删除 3 条原注册相关 · 前端 Toast 直接可展示 `message`，排查看 `code`）
 
 | HTTP 码 | code 常量 | 触发场景 |
 |---------|-----------|----------|
-| 400 | `ERR_USERNAME_EXISTS` | 注册 / 新建账号时用户名重名（不区分大小写） |
+| 400 | `ERR_USERNAME_EXISTS` | 新建账号时用户名重名（不区分大小写） |
 | 400 | `ERR_EMAIL_EXISTS` | 邮箱已被其他账号占用 |
 | 400 | `ERR_WEAK_PASSWORD` | 密码 < 8 位或缺少字符类型要求（注册 / 重置 / 改密） |
-| 400 | `ERR_INVALID_INVITE_CODE` | 邀请码格式错误（非 16 位 A-Z0-9） |
-| 400 | `ERR_INVITE_CODE_USED` | 邀请码已被别人注册过（1 次性） |
-| 400 | `ERR_INVITE_CODE_EXPIRED` | 邀请码 `expires_at < now` |
 | 401 | `ERR_CREDENTIAL_INVALID` | 用户名不存在或密码 bcrypt 不匹配（故意返回相同文案，防枚举） |
 | 401 | `ERR_ACCOUNT_DISABLED` | 登录账号已被管理员禁用 |
 | 401 | `ERR_TOKEN_EXPIRED` | access_token 过期；前端自动 `POST /api/auth/refresh` 换一对新的 |
@@ -459,23 +470,61 @@ SSO_JWT_PUBLIC_KEY_URL=https://sso.corp.com/.well-known/jwks.json
 | `email` | str | ✅ | ≤ 128 | 合法邮箱格式；冲突策略同 username |
 | `role` | str | ✅ | enum | `admin` / `manager` / `operator`（与 §8.1 表一致）；传其他值 400 |
 | `display_name` | str | ⭕ | ≤ 64 | 昵称 / 中文全名；不传则用 username 做 Avatar 首字母 |
-| `operator_uid` | str | ⭕ | `op_xxx` | 绑定 Matrix `operators.uid`；传非法值自动降级为“未绑定”，不会 4xx（方便同事先调通） |
+| `operator_uid` | str | ⭕ | `op_xxx` | 绑定 Matrix `operators.uid`；传非法值自动降级为"未绑定"，不会 4xx（方便同事先调通） |
 | `iat` / `exp` | int | ✅ | Unix 秒 | Matrix **手动校验**（python-jose 自动验关闭）：`exp - iat ≤ 300s`（5 分钟窗口），防重放 |
 | `iss` | str | ⭕ | ≤ 64 | 签发方标识，Matrix 仅记录到 audit_logs 不做白名单 |
 
 ---
 
-**本阶段交付清单检查（含 v4.1 账号 + SSO 大模块）**
+## 十一、v4.3 最新能力变更日志（2026-09-16 · 对接必看）
+
+### T203 · 平台曝光占比饼图：18 平台 0% 全显 + 空态条件调整
+
+**问题背景 v4.2 及以前**：TrafficPie 组件只接收后端实际返回的平台数据（通常只有 3~5 个有采集量的平台），其余 13+ 平台从图例中消失，运营无法一眼确认"是真的 0 采集量还是平台压根没接入"。
+
+**v4.3 修复方式**：
+- 在首页 TrafficPie 调用点前增加 **IIFE normalize 块**：用 `Object.values(PLATFORM_META)`（18 条）作为唯一真源，循环补齐无采集平台 `value = 0`
+- 空态触发条件由 `data.length === 0` 改为 `total === 0 && data.length < 2`（避免只有 1 个平台有 0 数据时误触空态隐藏整个饼图）
+- TrafficPie 图例按 `value desc` 排序，有采集平台靠前，0% 平台统一靠后，视觉一致
+
+**验收方式**：首页「平台曝光占比」卡片展开图例 → 手指点一遍 → 必须恰好 **18 条**，无采集平台末尾显示 `平台名 0.0%`。
+
+### T204 · 昵称修改实时同步：无刷新全局 currentUser 即时重渲染
+
+**问题背景 v4.2 及以前**：ProfileView「保存」成功后只刷新本页本地 state；Header 用户按钮 / 面包屑绩效标题 / 归属运营列 等读取 `currentUser.display_name` 的组件必须手动 F5 才能变更新昵称，体验割裂。
+
+**v4.3 修复方式**：
+1. `App.jsx` 顶层 `<ProfileView>` 调用新增 prop：`onUpdateCurrentUser={setCurrentUser}`（把顶层 currentUser setter 注入进去）
+2. `ProfileView` 函数签名加第 2 个参数：`function ProfileView({ user, onUpdateCurrentUser })`
+3. save() 成功 `PUT /api/auth/profile` 返回 200 后，立即调用：
+   ```js
+   onUpdateCurrentUser?.(prev => ({
+     ...prev,
+     display_name: newDisplayName,
+     displayName:  newDisplayName, // 兼容历史 camelCase 字段
+     email:        newEmail,
+     avatar:       newAvatar,      // 渐变/自定义头像
+   }));
+   ```
+4. React 顶层 `currentUser` state 变更 → 所有订阅该 state 的子组件（Header / Breadcrumb / Operator 列等）**0.5s 内自动重渲染**
+
+**验收方式**：个人资料改昵称 → 保存 → 不要刷新 → 同时看：① Header 头像右侧用户名按钮；② 面包屑「张总 · 个人绩效看板」标题；③ 列表归属运营列 3 处，三处必须同时立即变更新值。
+
+---
+
+**本阶段交付清单检查（含 v4.2 仅管理员创建 + v4.3 T203/T204 大模块）**
 - [x] Chrome 采集插件（Manifest V3）4 个核心文件（manifest / content / background / popup）+ 1 个 rules.json
-- [x] FastAPI 后端 `server/main.py`（SQLite + seed demo 数据 + 3 个核心端点 + 对齐 Dashboard 字段）
-- [x] 前端零改动接入（Vite proxy + API 层 fallback mock 已预留）
-- [x] **v4.1 后端 16 API + 4 张新表（users / invite_codes / refresh_tokens / audit_logs）** + `smoke_auth.sh 21/21 PASS` + `test_auth_mini.py 7/7 OK`
-- [x] **v4.1 前端：LoginPage + RegisterPage + AdminUserManagementPage（7 列 + 分页 + 筛选 + 2 按钮）+ 3 Modal** + `npm run build exit0`
-- [x] **v4.1 权限隔离：admin→后台；manager→全局数据；operator→个人看板**；UserSwitcher 菜单 4 组字段完全按角色裁剪
-- [x] **v4.1 SSO 免登：HS256 默认 + RS256 JWKS 预留 + OAuth 占位**；同事 10 行 python-jose 零后端改动
-- [x] 本 README 安装 / 联调 / 部署指南 + §8 账号与权限 + §9 SSO 对接 3 方案 + §10 .env 10 表 / 错误码 12 条 / SSO payload 6 字段表
+- [x] FastAPI 后端 `server/main.py`（SQLite + seed admin 默认账号 + 3 个核心端点 + 对齐 Dashboard 字段）
+- [x] 前端零改动接入（Vite proxy + API 层 v4.3 已禁 mock fallback）
+- [x] **v4.2 账号体系：管理员手动创建唯一入口，原自助注册永久移除**（invite_codes 表/路由/错误码 3 条 全移除）
+- [x] **v4.2 管理后台 Tab4 顺序：系统用户 → 采集器授权 Token → 股票监控 → 社区监控**
+- [x] **v4.2 股票 + 社区监控内联 Logo 上传**（hover Logo 容器 → 修改图标 → Base64 data_url 同步写库）
+- [x] **v4.3 Header 下载插件入口**：天蓝色按钮替换 AI周报 → DownloadsPage 一键 ZIP 下载 + 6 文件清单 + README_STAGE2.md（本文件）链接
+- [x] **v4.3 T203 饼图 18 平台 0% 全显**：PLATFORM_META normalize + 空态条件调整
+- [x] **v4.3 T204 昵称实时同步**：onUpdateCurrentUser prop 注入 → 顶层 setCurrentUser patch → 无需刷新
+- [x] 本 README 安装 / 联调 / 部署指南 + §8 账号与权限（仅管理员创建） + §9 SSO 对接 3 方案 + §10 .env 10 表 / 错误码 9 条 / SSO payload 6 字段表 + §11 v4.3 变更日志 2 条
 
 下一步可以：
 - 在 Swagger `/docs` 里真实发一遍 heartbeat + collect，立刻在 Dashboard 看到结果；
 - 用 §9.1 的 10 行 Python 脚本让同事把 SSO 门户联调跑通（后端无需改动，只需告知共享 JWT_SECRET 或独立 SSO_JWT_SECRET）；
-- 或者继续 Stage3 剩余模块（AI 周报模型接入 / Collector 分布式调度），要做哪块告诉我就行。
+- 或者继续 Stage3 剩余模块（Collector 分布式调度 / 数据质量监控告警），要做哪块告诉我就行。

@@ -1,8 +1,20 @@
-# Matrix · 多账号社媒 / 金融矩阵数据监测系统 v2.0
+# Matrix · 多账号社媒 / 金融矩阵数据监测系统 v4.3
 
-基于 **指纹浏览器 (AdsPower / 比特浏览器) + Chrome MV3 扩展 + 本地 Python 自动化** 的分布式团队矩阵数据采集与可视化看板。
+基于 **指纹浏览器 (AdsPower / Hubstudio) + Chrome MV3 扩展 + 本地 FastAPI+SQLite 后端** 的分布式团队矩阵数据采集与可视化看板。
 
-**v2 新增三大核心能力**：RBAC 多角色权限（Admin 全景 / 运营个人视角）· 分布式采集溯源（多运营多人多电脑）· Stocktwits 股票情绪 + Reddit 社区监测。
+**v4 最新交付：** 账号体系 JWT + SSO 免登（v4.1）· 股票/社区白名单采集触发（v4.1）· 发布频率热力图 + 24h 活跃曲线 + 18 平台筛选（v4.2）· 管理后台 Tab4 重排 + 内联 Logo 上传（v4.2）· 全站禁假数据 + 昵称实时同步 + 平台曝光 18 平台全显（v4.3）。
+
+---
+
+## 0. 版本时间线（已交付能力）
+
+| 版本 | 核心交付 | 验证状态 |
+|------|---------|---------|
+| **v4.3**（当前） | 下载插件入口替代 AI周报；全站禁假数据（删除 OPERATORS fallback + 15s Math.random 注入）；平台曝光占比 18 平台 0% 全显；修改昵称后 header/面包屑/归属列实时同步 | ✅ 浏览器实机 + build 0 fatal |
+| **v4.2** | 管理后台 Tab 顺序：系统用户 → 采集器授权 Token → 股票监控 → 社区监控；股票/社区内联 Logo 上传（Base64 data_url）；移除页面右上角冗余大按钮；全站移除原自助注册仅管理员手动创建账号；Tokens 模块搬家至管理后台系统用户 Tab（prop 注入，Hooks 前置修复 Rules of Hooks 96 vs 115 + TDZ ReferenceError） | ✅ 8 条冒烟测试 |
+| **v4.1** | FastAPI JWT + bcrypt 账号体系；管理员手动创建（仅管理员入口）；Admin User Management 页面；SSO JWT 免登 HS256/RS256 JWKS；采集器白名单触发机制（≥3s 停留三重置 + pushState / visibilitychange）；Stocktwits + Reddit 双模块独立紫色渐变卡片 | ✅ smoke_auth.sh 21/21 PASS |
+| **v3.4** | 发布频率热力图（GitHub 风）+ 24h 活跃气泡曲线双列 + 18 平台筛选 chips（9 列 × 2 行严格 Grid）；连续活跃 / 最长静默天数统计；头像采集兜底蓝底白代码渐变；华盛通玫红 + 老虎社区玫红双平台加入 | ✅ 热力图 + 24h 视觉验收 |
+| **v2.0** | Manifest V3 扩展 + Stocktwits 股票情绪 + Reddit 社区 + RBAC 双视角（Admin 全景 / 运营个人视角）+ 7 字段采集溯源 | ✅ 构建 0 fatal |
 
 ---
 
@@ -10,387 +22,365 @@
 
 ```
 matrix/
-├── chrome-extension/                 # 模块一：Manifest V3 分布式采集扩展（v2）
-│   ├── manifest.json                 # + Stocktwits/Reddit host 权限 + system/identity
-│   ├── content.js                    # + 13 平台 DOM 提取（含股票/社区）+ 双类型 Toast
-│   ├── background.js                 # + 7 个溯源 Header（Operator/Machine/JWT）+ 30min 重试
+├── chrome-extension/                 # 模块一：Manifest V3 分布式采集扩展（副本 chrome-extension 目录，与 collector-extension 双份同步）
+│   ├── manifest.json                 # + Stocktwits/Reddit host 权限 + declarativeNetRequest CORS
+│   ├── content.js                    # + 18 平台 DOM 提取 + 双类型 Toast + 白名单 ≥3s 触发
+│   ├── background.js                 # + 7 个溯源 Header（Operator/Machine/JWT）+ 3min 心跳重试
 │   └── popup.html                    # + 身份卡（UID/名称/机器）+ SSO JWT Token 输入
 │
-├── python-runner/                    # 模块二：Python 自动化 + FastAPI 权限服务（v2）
-│   ├── main_runner.py                # + RBAC 过滤 / JWT 解码 / Stocktwits·Reddit 提取器 / 绩效视图
-│   ├── accounts.json                 # + operators 数组（admin/operator）· entity_type · assigned_operator
-│   ├── requirements.txt
-│   ├── data.sample.json              # v2 示例：COMMUNITY 记录 + operator/machine 溯源
-│   └── ...
+├── collector-extension/              # 模块一主目录（Dashboard DownloadsPage 打包此目录）
+│   ├── manifest.json
+│   ├── content.js                    # Stocktwits 股票提取 6 指标 + Reddit 社区提取 4 指标 + 跨平台 extractAvatar 头像打分器
+│   ├── background.js                 # chrome.alarms 3 分钟心跳 + flushQueue 批量 / 指数退避 / chrome.storage.local QUEUE
+│   ├── popup.html + popup.js         # Tailwind 3 CDN · 归属运营 / 机器名 / server URL / webhook / 三枚状态卡
+│   └── rules.json                    # declarativeNetRequest：剥离 Origin/Referer 响应注入 ACAO*
 │
-├── dashboard/                        # 模块三：React 双视角看板（v2 重写）
+├── dashboard/                        # 模块三：React/Vite 双视角看板（v4.3）
 │   └── src/
-│       ├── App.jsx                   # + 身份切换 / Admin 绩效对比条形图 / Stocktwits & Reddit 专属卡
+│       ├── App.jsx                   # 主入口（LoginPage + Dashboard + DownloadsPage + ProfileView + AdminUserManagementPage 内嵌）
 │       └── lib/
-│           ├── api.js                # + whoami / operator_uid=xxx 透传 / JWT session
-│           └── mockData.js           # v2 完整 RBAC mock（10 账号 + 6 社区 + 4 运营）
+│           ├── api.js                # fetchSummary / fetchWhoami / RBAC CSV / 管理员路由（createAccount/resetPassword/updateMe）
+│           └── mockData.js           # ⚠️ 仅静态平台配置（PLATFORM_META + PLATFORM_LOGOS），不再含 OPERATORS 假运营人；v4.3 起所有数据严格真实采集，0 就是 0，空就是空
 │
+├── server/                           # 模块二：FastAPI + SQLite 聚合服务（v4.3）
+│   ├── main.py                       # JWT auth · /api/auth/login · /api/admin/* 路由 · /api/summary 全量聚合 · 加权发布频率口径 + 24h 小时分布 + 366 天补 0 日历 · 18 PLATFORMS 常量
+│   └── requirements.txt              # fastapi[all] / uvicorn[standard] / pydantic v2 / pyjwt / bcrypt
+│
+├── python-runner/                    # （保留）Python Playwright 自动化批量采集器（AdsPower/Hubstudio 指纹浏览器）
+├── chrome-extension/                 # （保留副本）
 └── schema/
-    ├── supabase_schema.sql           # v2：operators 表 · entity_type · assigned_operator · 溯源字段 · 绩效视图
-    └── sqlite_schema.sql             # v2：SQLite 同语义版
+    ├── supabase_schema.sql           # v4.2：users · operators · accounts · records · daily_snapshots · refresh_tokens · audit_logs · collector_tokens
+    └── sqlite_schema.sql             # SQLite 同语义版（server/main.py 内建 DDL 自动建表）
 ```
 
 ---
 
-## 2. 快速启动（5 分钟跑通 v2 全能力）
+## 2. 快速启动（5 分钟跑通 v4.3）
+
+### 前置说明：真实数据唯一入口
+
+v4.3 起 **全站禁止任何假数据 / Mock fallback**。所有数字来源：
+1. **Chrome 插件采集**（运营浏览对应平台页面后自动上报）
+2. **Python Playwright 自动化**（无值守指纹浏览器批量采集）
+3. **管理员在后台手动添加股票/社区白名单**（插件用户浏览到对应页面自动触发）
+
+后端无采集数据时显示空态（0 就是 0，不会填充假数据）。
+
+---
 
 ### ① 启动 API 服务（接收扩展数据 + RBAC + 鉴权）
 
 ```bash
-cd python-runner
+cd server
 python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 # 启动 FastAPI（默认 0.0.0.0:8000，CORS 全开 + iframe CSP frame-ancestors=*）
-python main_runner.py server
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 - 健康检查：<http://127.0.0.1:8000/api/health>
-- 身份接口：<http://127.0.0.1:8000/api/whoami>
-- 角色数据（Admin）：<http://127.0.0.1:8000/api/summary?operator_uid=admin_001>
-- 角色数据（运营）：<http://127.0.0.1:8000/api/summary?operator_uid=op_001>
+- Swagger 文档：<http://127.0.0.1:8000/docs>
+- Redoc：<http://127.0.0.1:8000/redoc>
 
-> 💡 无 Python 环境也可直接跳下一步——Dashboard 会自动加载 v2 mock 数据用于演示（含 RBAC 切换）。
+首启动自动 seed：创建 SQLite `server/matrix.db`，**建库 + 插入唯一初始管理员 `admin / admin123`**（bcrypt rounds=12）。
+
+> 🔐 **生产必改**：登录后立刻在「个人资料与安全 → 登录密码 → 修改密码」重置 admin 默认密码；环境变量 `JWT_SECRET` 改为 `openssl rand -hex 32` 生成的随机 32+ 字节。
 
 ### ② 启动可视化 Dashboard
 
 ```bash
 cd dashboard
 npm install          # 或 pnpm / yarn
-npm run dev
+npm run dev          # Vite 默认 5173，/api → 127.0.0.1:8000（vite.config.js 已配置 proxy）
+npm run build        # 生产打包
 ```
 
-打开 <http://localhost:5173>，v2 默认以 **admin_001（张总）管理员** 登录。
+打开 <http://localhost:5173> → 登录页：
 
-**在右上角 "当前登录人" 下拉中切换身份，体验 RBAC：**
-- 🔘 `admin_001`（张总）：**管理员全景视角** → 看到所有 22 个对象（账号 + 社区）+ 顶部「运营绩效对比」条形图 + 表格中完整的「归属运营 / 上报人 / 机器」三列溯源
-- 🔘 `op_001`（李运营）/ `op_002`（王运营）/ `op_003`（赵运营）：**运营个人视角** → 统计卡片、趋势图、饼图、表格、社区卡片 **仅显示 assigned 给自己的对象**，表格隐藏归属运营等内部列，右上角单独显示此人「负责对象数」。
+| 初始账号（seed） | 密码 | 角色 |
+|------------------|------|------|
+| `admin`          | `admin123` | 平台管理员（Admin 全景） |
 
-下拉最底部还支持 **粘贴内部主系统的 JWT Token**（HS256，payload 含 `sub`=uid / `name` / `role`=admin|operator），一键切换 SSO 模式。
+> v4.2 起 **全站仅管理员手动创建、无公开注册**；运营同事账号只能由管理员在「用户与权限后台 → 系统用户 → 新建账号」手动创建（自动生成 16 位大小写+数字+符号强密码）。
 
-### ③ 安装 Chrome 扩展（分布式采集 · 多台电脑）
+### ③ 安装 Chrome 采集扩展（Manifest V3 · 运营电脑必装）
 
-1. 打开 Chrome / Edge → `chrome://extensions` → 开启「开发者模式」→「加载已解压」选中 `chrome-extension/`
-2. 点击扩展图标 → **在「运营身份」区域填入 4 项：**
-   - **运营 UID**：`op_001` / `op_002` / `op_003`（与 `accounts.json` 中 `assigned_operator_uid` 对齐）
-   - **运营名称**：李运营 / 王运营 / 赵运营
-   - **机器名**：如 `李运营-MacBook-Pro`（方便 Admin 看板溯源哪台电脑掉线）
-   - **SSO JWT Token**（可选）：内部主系统签发的 JWT（覆盖手动填写）
-   - API Endpoint：`http://中央服务器IP:8000/api/collect`（或本地 `127.0.0.1`）
-3. 访问任意平台：
-   - **账号页（11 个平台）** → 右上绿色 Toast ✅ 「已采集」
-   - **Stocktwits 股票页**（如 `https://stocktwits.com/symbol/NVDA`）→ 紫色 🟣 社区 Toast「🐂 看涨 68%」
-   - **Reddit 社区页**（如 `https://www.reddit.com/r/wallstreetbets`）→ 紫色 🟣 社区 Toast「👥 1580万成员 / 4.2万在线」
+**方式 A：从 Dashboard 一键下载整包（v4.3 推荐 ⭐）**
+1. 登录 Dashboard → 顶部 Header 右侧「下载插件」天蓝渐变按钮
+2. 进入 DownloadsPage → 点「一键下载插件整包（ZIP）」→ 获得 `collector-extension.zip`
+3. 解压后得到 `collector-extension/` 文件夹，进入 Chrome 扩展管理页面
 
-4. 打开 Dashboard → 对应股票 / 社区卡片立即出现，并且底部「来源机器 / 运营」「最后上报时间」实时更新，方便 Admin 一眼看出哪位运营的哪个账号超过 6 小时未上报（标红异常 ⚠️）。
+**方式 B：直接加载仓库目录**
+```
+矩阵仓库目录 → collector-extension/
+```
+
+**标准加载流程（Chrome / Edge / 所有 Chromium ≥110 内核）**：
+1. 打开 `chrome://extensions/` → 右上角开启「开发者模式」
+2. 点「加载已解压的扩展程序」→ 选中 `collector-extension/` 目录
+3. 工具栏拼图图标 → Matrix Collector → 📌 固定
+
+**插件 3 项必填配置（Popup 界面）**：
+| 项目 | 说明 | 示例 |
+|------|------|------|
+| **归属运营** | 下拉选择已在 Admin 后台创建的运营账号 | `李运营` / `王运营` / `张总（管理）` |
+| **机器名称** | 机器昵称，便于溯源排错 | `李运营 - Win11 台式` / `赵运营 - Mac Studio` |
+| **后端服务地址** | 本地 / 局域网 / 生产域名 | `http://127.0.0.1:8000` / `https://matrix.company.com` |
+
+**采集触发（v4.1 白名单方案 A）**：
+> ⚠️ 插件不会盲目采集所有页面。必须管理员先在「管理后台 → 股票监控 / 社区监控 → 添加监控对象」配置白名单（如 `$NVDA` / `r/wallstreetbets` / 小红书具体账号 URL）。白名单配置后，插件用户浏览对应 URL → **停留 ≥ 3 秒** 或 **Tab visibilitychange 切回** → 自动解析 DOM 上报。
 
 ---
 
-## 3. v2 核心业务能力详解
+## 3. v4 账号体系（JWT + SSO · 无公开注册）
 
-### 3.1 账号权限与内部系统对接（RBAC + SSO + iframe 内嵌）
+### 3.1 RBAC 三级角色（后端 `require_role` 多层 Depends 强制校验）
 
-**角色定义（`operators` 表）**
+| 角色 | 英文常量 | 权限 |
+|------|---------|------|
+| 平台管理员 | `admin` | 一切权限：用户 CRUD / 重置密码 / Token 授权 / 股票+社区白名单维护 / 禁用账号 / 审计日志 |
+| 运营主管 | `manager` | 所有运营数据 + 切换视角；不可访问 Admin 后台 4 Tab |
+| 运营专员 | `operator` | 仅个人绩效看板 + 本人负责对象；表格隐藏归属/上报人/机器列 |
 
-| role | 权限 | 典型使用者 |
-|---|---|---|
-| `admin` | 查看所有平台 / 所有运营 / 所有对象 / 绩效对比 / CSV 全量导出 | 老板、管理层 |
-| `operator` | 仅看 `assigned_operator_uid = 自己` 的账号/社区 + 自己上报的数据 CSV 导出 | 运营人员 |
-| `viewer`（预留） | 只读全部，不能导出 | 访客 / 审计 |
+前端菜单只是 UI 裁剪，即使绕过前端构造 HTTP 请求后端也返回 401 / 403。
 
-**账号 / 社区归属配置（`accounts.json` + 数据库）**
-每个监测对象必带：
-- `entity_type`：`ACCOUNT`（个人/官方账号）或 `COMMUNITY`（股票页 / Subreddit）
-- `assigned_operator_uid`：绑定的运营 UID（如 `op_001`）
-- `assigned_operator_name`：运营姓名（看板展示用）
+### 3.2 创建运营账号（管理员唯一入口）
 
-**后端 RBAC 过滤（FastAPI）**
-`/api/summary` / `/api/export/csv` 三个渠道取当前登录人，优先级：
-1. **Authorization: Bearer <JWT>** → HS256 校验，payload `sub` → uid，`role` 判定
-2. **Header `X-Operator-UID` + `X-Role`** → 内部微服务内网透传
-3. **Query `?operator_uid=xxx`** → 开发测试 / 前端切换模拟
+路径：`右上角头像 → 用户与权限后台 ADMIN → Tab 1「系统用户」→ 顶部「新建账号」`
 
-命中后 `apply_rbac(records, uid, role)`：
-- admin：原样返回全部
-- operator：只返回 `assigned_operator_uid == uid` 的对象；所有聚合（总粉丝 / 趋势 / 平台流量 / 社区 Watchers）自动只统计负责范围
-- CSV 导出：同样走 RBAC（运营下载到的 Excel 只有自己账号）
+字段：用户名 / 邮箱 / 角色（默认运营专员）/ 绑定运营档案 → 提交后 **Toast 仅出现 1 次密码**（16 位强密码），管理员复制发送给对应同事。
 
-**SSO / iframe 内嵌对接**
-本系统天然支持微前端接入：
-- **iframe 内嵌**：后端设置 CSP `Content-Security-Policy: frame-ancestors *`；Dashboard 本身 100% 自适应，可嵌入任意宽高
-- **Token 鉴权**：父系统拿到 JWT → 写 `localStorage.matrix_jwt_token = xxx` 或通过 `postMessage`；再 iframe Dashboard
-- **Query 传身份**（低安全场景）：`/dashboard?operator_uid=admin_001` 直接作为默认登录人
+> v4.2 永久移除：原自助注册生成、登录页原注册 Tab、原注册 400 系列错误码。所有新账号必须走管理员手动创建。
 
-### 3.2 分布式采集溯源（多运营 · 多人多电脑）
+### 3.3 昵称修改实时同步（v4.3）
 
-**Chrome 扩展上报 Header（7 个溯源字段，100% 兜底）**
+所有显示昵称的地方（header 用户按钮、面包屑绩效看板标题、归属运营列）都从 `currentUser.display_name` 单一真源读取。
 
-| Header | 说明 | 示例 |
-|---|---|---|
-| `X-Operator-UID` | 运营唯一 ID（popup 配置） | `op_001` |
-| `X-Operator-Name` | 运营姓名（看板展示） | `李运营` |
-| `X-Machine-ID` | 本机唯一 ID（`chrome.storage.local` 自动生成 UUID，永不变化） | `mac-3fa2-8c...` |
-| `X-Machine-Name` | popup 中手填的机器昵称 | `李运营-MacBook-Pro` |
-| `X-Client-Version` | 扩展版本号 | `2.0.0` |
-| `X-Entity-Type` | ACCOUNT / COMMUNITY | `COMMUNITY` |
-| `Authorization` | SSO JWT（可选，优先级最高） | `Bearer eyJhbGc...` |
-
-> 为防止中间代理丢 Header，`background.js` **同步在 POST Body JSON 中冗余写入同名字段**；后端 `/api/collect` 双兜底取数，保证永不丢失溯源信息。
-
-**看板溯源展示**
-1. 顶部「异常 / 掉线」卡片 + 表格「异常」列：超过 6 小时未上报的对象自动标琥珀色 🟠，展示 `AlertTriangle` 图标 + "异常" 徽标
-2. 表格 **Admin 视角** 新增 3 列：归属运营（渐变头像）/ 上报人 / 机器名（鼠标悬停显示机器 ID）
-3. 表格 **最后上报** 列：相对时间（"2 分钟前" / "18 小时前"）一眼看数据新鲜度
-4. Stocktwits / Reddit 社区专属卡片底部固定两行：「机器名」+「最后上报」，管理者随时定位问题来源
-
-**扩展本地重试队列**
-- 网络失败的上报自动入 `chrome.storage.local` retry 队列
-- 每 30 分钟 + 浏览器启动时自动重试
-- Popup 显示「待上传 N 条」，可手动触发
-
-### 3.3 特殊平台监测：Stocktwits 股票 + Reddit 社区
-
-#### 3.3.1 Stocktwits（股票情绪页 `https://stocktwits.com/symbol/$CODE`）
-
-Chrome 扩展 `content.js` 进入该 URL 自动提取 **6 个指标**：
-
-| 字段 | 提取方式 | 展示位置 |
-|---|---|---|
-| `members` / Watchers | 正则 "X followers / X Watchers" + 万/亿/K 单位换算 | 社区卡「Watchers」+ 表格粉丝/成员列 |
-| `message_volume_24h` | 24h Message Volume | 社区卡「24h 消息」|
-| `sentiment_bull` / `sentiment_bear` | 看涨 % / 看跌 %（Bullish / Bearish 文本正则）| 社区卡情绪条（绿看涨 + 红看跌）+ 表格互动率位置显示 🐂 XX% |
-| `symbol_price` | 当前股价 $X.XX | 社区卡顶部大号 $价格 |
-| `symbol_change_pct` | 当日涨跌 ±X.XX%（红 ↓ / 绿 ↑）| 价格旁涨跌徽标 + 箭头 |
-
-accounts.json 配置示例：
-```json
-{ "account_name": "$NVDA", "entity_type": "COMMUNITY", "platform_key": "stocktwits",
-  "symbol": "NVDA", "target_url": "https://stocktwits.com/symbol/NVDA",
-  "assigned_operator_uid": "op_001", "assigned_operator_name": "李运营" }
-```
-
-看板 Stocktwits 专属卡片（Dashboard 中单独横排展示 3 列网格）：
-- 顶部：股票大 Logo（$NVDA）+ 价格 / 涨跌徽标
-- 中部三宫格：Watchers · 24h 消息 · 🐂/🐻 情绪
-- **看涨 / 看跌情绪条**：渐变绿段占宽 + 红段占宽，1:1 比例，一眼判断市场
-- 底部：来源机器 / 最后上报时间（溯源）
-
-#### 3.3.2 Reddit Subreddit 社区页 `https://www.reddit.com/r/XXX`
-
-自动提取 **4 个指标**：
-
-| 字段 | 提取方式 | 展示 |
-|---|---|---|
-| `members` | 正则 "X.Xm members" → 15,800,000 | Members 卡 + 表格成员列 |
-| `online` | "X.Xk online" → 42,800 | Online 卡（颜色按热度：绿 >4‰ / 黄 >2‰ / 灰）+ 带呼吸点 pulse 图标 |
-| `posts_24h` | 正则 / DOM 24 小时发帖数 | 24h 帖卡 + "每 N 分钟 1 帖" 文案 |
-| `message_volume_24h` | = posts_24h，用于流量饼图折算 | / |
-
-accounts.json：
-```json
-{ "account_name": "r/wallstreetbets", "entity_type": "COMMUNITY", "platform_key": "reddit",
-  "subreddit": "wallstreetbets", "target_url": "https://www.reddit.com/r/wallstreetbets",
-  "assigned_operator_uid": "op_003", "assigned_operator_name": "赵运营" }
-```
-
-看板 Reddit 专属卡片：
-- Reddit 橙红渐变 Logo + 社区名
-- 三宫格：Members / 🟢 Online（带颜色 + 呼吸灯）/ Posts 24h
-- 在线率条：`online / members`，宽度 0~100%，热度染色
-- 发贴节奏：自动计算 "每 X 分钟 1 帖" 文案（24h / posts_24h × 60）
-- 底部溯源 + 最后上报
+进入「个人资料与安全 → 显示昵称」改成新值 → 保存 → **无需手动刷新页面**，Header / 面包屑 / 表格归属列 0.5 秒内全部重渲染。
 
 ---
 
-## 4. 数据结构总览（v2 Schema）
+## 4. v4 Dashboard 功能清单（当前 UI 版本）
 
-### 4.1 核心枚举贯穿全链路
+### 顶部 Header 按钮顺序（左 → 右）
 
-```ts
-type EntityType = 'ACCOUNT' | 'COMMUNITY';
-type RoleType   = 'admin' | 'operator' | 'viewer';
-```
+1. Matrix 监测看板 v3.4 品牌 Logo → 点击回首页
+2. 「我的矩阵」面包屑快捷切换
+3. 全局搜索 🔍（账号名 / 平台 / 运营姓名 / 机器昵称 四字段模糊）
+4. 实时 · 历史爆款 2 个快捷筛选
+5. ⭐ **「下载插件」天蓝渐变按钮**（v4.3 新增，替换原 AI周报 → 进入 DownloadsPage ZIP 整包下载）
+6. 右上角用户菜单：个人资料与安全、用户与权限后台（仅 Admin 可见）、清空全部监测数据（仅 Admin 可见）、退出登录
 
-### 4.2 `operators` 表 / JSON 数组
+### 首页全景卡片 5 张
+1. 全网总粉丝（账号）indigo
+2. 社区覆盖（成员）violet（Stocktwits Watchers + Reddit Members 合计）
+3. 近 7 天总曝光量 sky（阅读/播放/消息量折算）
+4. 涵盖监测对象（平台 × 账号 × 社区 拆分）
+5. 异常 / 掉线 rose（6h+ 未上报 或 粉丝=0 标红）
 
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `operator_uid` | VARCHAR PK | 运营 ID，如 `op_001` / `admin_001` |
-| `operator_name` | VARCHAR | 看板展示姓名 |
-| `role` | ENUM | admin / operator / viewer |
-| `email` / `phone` / `extra` | VARCHAR JSON | （预留）|
+### Stocktwits · 股票情绪监测（横排 3 列网格）
+- 采集失败头像 → 蓝紫渐变 + `$代码` 兜底
+- 三宫格：Watchers · 24h 消息 · 🐂 看涨 % / 🐻 看跌 %
+- 内联 Logo 上传（v4.2：hover 显示 Camera 按钮，Base64 data_url 同步）
 
-### 4.3 `accounts` 表 / JSON（监测对象）
+### Reddit · 社区活跃度监测（横排 3 列网格）
+- 橙红渐变兜底 + `Globe2` 图标（采集不到头像时）
+- 三宫格：Members / Online 呼吸灯 / Posts 24h + "每 N 分钟 1 帖"
+- 内联 Logo 上传（v4.2，股票一致）
 
-| 字段 | 类型 | 示例（ACCOUNT） | 示例（COMMUNITY Stocktwits） | 示例（COMMUNITY Reddit） |
-|---|---|---|---|---|
-| `entity_type` | ENUM | ACCOUNT | COMMUNITY | COMMUNITY |
-| `account_name` | VARCHAR | 财经观察 | $NVDA | r/wallstreetbets |
-| `platform_key` | VARCHAR | xueqiu | stocktwits | reddit |
-| `symbol` | VARCHAR | — | NVDA | — |
-| `subreddit` | VARCHAR | — | — | wallstreetbets |
-| `target_url` | VARCHAR | xueqiu.com/u/xxx | stocktwits.com/symbol/NVDA | reddit.com/r/wallstreetbets |
-| `assigned_operator_uid` | VARCHAR | op_001 | op_001 | op_003 |
-| `assigned_operator_name` | VARCHAR | 李运营 | 李运营 | 赵运营 |
-| `profile_id` | VARCHAR | 指纹浏览器 ID | （空，不需登录） | （空，不需登录）|
+### 内容发布总体统计（双列 Emerald 绿）
+| 左列：GitHub 风频率热力图 | 右列：24h 活跃气泡曲线图 |
+|--------------------------|---------------------------|
+| 53 周 × 7 日；**竖长矩形 22px**，`gap-1`，所有 0/null 白格强制 `ring-1 ring-black/[0.04]` 无缺口 | SVG viewBox 95×100；每个数据点 28×28px 透明 hitbox，hover 稳定显示 X 时 + 发布数 |
+| 顶部 Chips 筛选：**9 列 × 2 行 Grid = 18 平台**（微信/视频号/抖音/小红书/富途/老虎/华盛通/雪球/X/YouTube/TikTok/LinkedIn/Instagram/Discord/Stocktwits/SeekingAlpha/Reddit/微博） | Emerald 绿系统一视觉；太阳/月亮图标已移除 |
+| **底部两张天蓝渐变统计卡**：「连续活跃 N 天」+「最长静默 M 天」（替换原 Less→More 色阶图例，业务指标更有价值） | 两列对齐严格对称：标题层级 + 线框结构 + padding 像素级一致 |
 
-### 4.4 `records` 表（每次采集一行，可无限追加）
+### 平台曝光占比 Donut Pie（v4.3 升级 ⭐）
+- **固定 18 个平台图例 100% 显示**，即使平台无采集数据也强制显示 `0.0%`（value=0 扇形角度 0 不可见，但右侧图例 18 条全在）
+- 排序：按 `value desc`，有曝光的在前，0% 的在后
+- 点击任一图例 → 跳对应平台看板
+- **空态触发条件**：全部平台 value 加总为 0 **且** 平台列表 < 2（避免把 18 个 0% 误判为空），否则正常渲染
 
-公共字段 + ACCOUNT 字段 + COMMUNITY 字段三组合并：
+### 图表 + 表格
+- 近 30 天各平台覆盖增长 LineChart（多色拆线）
+- 监测对象明细 10 列：对象（渐变头像+异常徽标）/ 类型 chip / 平台色点 / 粉丝成员 / 曝光消息 / 互动率情绪 / 归属运营（Admin 才可见）/ 上报人（Admin）/ 机器（Admin）/ 最后上报相对时间 / 外链打开
 
-```
-id · created_at · updated_at
--- 归属 & 溯源
-account_name · platform_key · entity_type · symbol · subreddit · target_url
-assigned_operator_uid · assigned_operator_name
-operator_uid · operator_name        ← 本次上报是谁操作的
-machine_id · machine_name           ← 本次上报来自哪台电脑（UUID + 昵称）
-client_version                      ← Chrome 扩展版本号
-
--- ACCOUNT (entity_type=ACCOUNT)
-followers · following · views · likes · comments · collect · engagement_rate
-
--- COMMUNITY Stocktwits
-members (=Watchers) · message_volume_24h
-sentiment_bull · sentiment_bear     ← 0~100, 两者和为 100
-symbol_price · symbol_change_pct    ← e.g. 118.42, 2.31 (%)
-
--- COMMUNITY Reddit
-members · online · posts_24h · message_volume_24h (=posts_24h)
-
-source: 'extension' | 'runner' | 'manual'
-abnormal: BOOLEAN                   ← 后端自动判断（粉丝=0 或 6h+未更新）
-extra: JSON                         ← 平台原始 DOM 片段 / 错误信息
-```
-
-视图（Supabase / SQLite 均已提供）：
-- `vw_latest_records`：每个 account_name 的最新一条记录（Dashboard 主数据源）
-- `vw_operator_performance`：每个 operator 的 accounts_count / communities_count / total_followers / total_members / abnormal_count（管理员绩效条形图数据源）
-
-完整 Schema：[schema/supabase_schema.sql](schema/supabase_schema.sql) / [schema/sqlite_schema.sql](schema/sqlite_schema.sql)
+### 管理后台 Tab 顺序（v4.2 永久 4 项）
+`Tab 0 系统用户 → Tab 1 采集器授权 Token → Tab 2 股票监控 → Tab 3 社区监控`
 
 ---
 
-## 5. v2 Dashboard 功能清单
+## 5. 18 平台总览（当前稳定集）
 
-启动后可见（顶部状态栏标注当前视角）：
+> 说明：v3.4 后多次平台调整（删除长桥/Telegram/知乎/贴吧/B站 → +老虎/华盛通），最终沉淀 **18 个平台**。后端 `server/main.py:PLATFORMS` 常量 / 前端 `mockData.js:PLATFORM_META` / 筛选 Chips 三方 **同源对齐**，任何一处改动都会同步。
 
-### 顶部 5 张统计卡片（v2 新增社区覆盖）
-1. 全网总粉丝（账号）`indigo`
-2. **社区覆盖（成员）** `violet`（所有 Stocktwits Watchers + Reddit Members 合计，管理层看舆情覆盖数）
-3. 近 7 天总曝光量 `sky`（账号阅读/播放 + 社区消息量×50 折算）
-4. 涵盖监测对象（N 账号 + M 社区 + P 平台明细）
-5. 异常 / 掉线 `rose`（>0 变红，文案提示尽快检查）
-
-### Admin 视角专属：运营绩效对比条形图
-- Recharts BarChart，维度：粉丝总量 / 社区覆盖 / 异常数
-- 自动按粉丝总量降序，一眼看出谁产出最高 / 谁的异常数最高
-
-### 专属卡片横排
-- **Stocktwits · 股票情绪监测 3 列网格**：每只股票一张卡（价格 / 涨跌 / Watchers / 24h 消息 / 🐂🐻 情绪条 + 来源机器）
-- **Reddit · 社区活跃度监测 3 列网格**：每个 Subreddit 一张卡（Members / Online 带呼吸灯 / Posts 24h / 在线率条 / 发帖节奏 / 溯源）
-
-### 图表区
-- 近 30 天各平台覆盖增长 LineChart（账号粉丝 + 社区成员，按平台拆分多色线条）
-- 平台曝光占比 Donut Pie（中心总曝光 + Top6 平台排序列表）
-
-### 监测对象明细表（v2 列大改）
-| 列 | 说明 |
-|---|---|
-| 对象 | 渐变头像 + 账号/社区名 + 异常徽章（琥珀色 AlertTriangle）|
-| **类型**（v2 新）| 🏷️ 账号（sky）/ 🌐 社区（violet）彩色 chip |
-| 平台 | 色点圆 tag |
-| 粉丝 / 成员 | ACCOUNT 用 followers，COMMUNITY 用 members，统一排序字段 `entity_audience` |
-| 曝光 / 消息 | ACCOUNT 用 views，COMMUNITY 用 message_volume_24h |
-| 互动率 / 情绪 | ACCOUNT：三档染色互动率；**Stocktwits**：🐂 XX%（绿/红）；**Reddit**：每 N 分钟 1 帖 |
-| **归属运营**（Admin 才显示）| 渐变头 + 运营姓名 |
-| **上报人**（Admin 才显示）| 小头像 + 姓名 |
-| **机器**（Admin 才显示）| Server 图标 + 机器昵称 |
-| 最后上报 | 相对时间（"X 分钟前"）|
-| 操作 | 外链打开主页 |
-
-### 筛选器（v2 新增）
-- 🔘 **类型**：全部 / 仅账号 / 仅社区 （LayoutGrid 图标）
-- 🔘 分类：全部 / 金融 / 社媒 / 海外 / 社区
-- 🔘 平台：13 平台下拉（Globe2 图标）
-- 🔍 顶栏搜索框（v2 加强）：账号名 / 平台 **/ 运营姓名 / 机器昵称** 四字段模糊匹配
-- 🛡️ 清除会话按钮（Shield 图标）：一键清 JWT + 当前登录人，回到默认 admin_001 演示
-
-### CSV 导出（v2 RBAC + 新列）
-- 优先调 `/api/export/csv?operator_uid=xxx`（后端按 RBAC 过滤 + 编码 UTF-8 BOM 可 Excel 直接打开）
-- 后端无响应则前端本地导出，**v2 新表头**：对象、类型、平台、归属运营、上报人、机器、粉丝/成员、阅读/曝光/消息24h、互动率%、最后上报
+| Key | 名称 | 分类 | 主色 |
+|-----|------|------|------|
+| wechat | 微信公众号 | 国内社媒 | #07C160 |
+| wechat_video | 微信视频号 | 国内社媒 | #1AAD19 |
+| douyin | 抖音 | 国内短视频 | #000000 |
+| xiaohongshu | 小红书 | 国内种草 | #FE2C55 |
+| futu | 富途牛牛 | 股票社区 | #00B2FF |
+| laohu | 老虎社区 | 股票社区 | #FF7A00 |
+| huasheng | 华盛通 | 股票社区（v4.2 新增） | #E91E63 |
+| xueqiu | 雪球 | 股票社区 | #FF4500 |
+| x | X(Twitter) | 海外社交 | #1DA1F2 |
+| youtube | YouTube | 海外视频 | #FF0000 |
+| tiktok | TikTok | 海外短视频 | #000000 |
+| linkedin | LinkedIn | 海外职场 | #0A66C2 |
+| instagram | Instagram | 海外图片 | #E4405F |
+| discord | Discord | 海外社区 | #5865F2 |
+| stocktwits | Stocktwits | 股票情绪 | #00A6E8 |
+| seekingalpha | Seeking Alpha | 股票研报 | #FF6600 |
+| reddit | Reddit | 海外社区 | #FF4500 |
+| weibo | 微博 | 国内社交 | #E6162D |
 
 ---
 
-## 6. 日常工作流（推荐运营 SOP）
+## 6. 后端 API 路由（FastAPI Pydantic 强校验）
 
-### 每个运营（首次配置 3 分钟）
-1. 在自己电脑安装扩展 → popup 填入 `op_xxx` / 姓名 / 机器昵称 / 服务器 API 地址 → 保存
-2. 打开指纹浏览器 AdsPower / 比特浏览器，**每个指纹 Profile 也单独加载同一个扩展**（或者打包 crx 批量下发）
-3. 日常刷账号页 / 股票页 / Reddit 社区 → 看到 Toast 即采集成功，无其他操作
+### 6.1 鉴权（JWT access + refresh token 双 token）
+| 路由 | 说明 |
+|------|------|
+| `POST /api/auth/login` | 用户名密码 → `{access_token, refresh_token, user}` |
+| `POST /api/auth/refresh` | refresh_token → 新 access_token |
+| `POST /api/auth/logout` | 撤销 refresh_token |
+| `GET /api/whoami` | 当前登录人（含 display_name / email / avatar） |
+| `POST /api/sso/jwt-login` | SSO 免登（v4.1，HS256 默认 / RS256 JWKS 预留） |
+| `PUT /api/auth/me` | 修改本人昵称/邮箱/头像渐变/自定义头像（v4.3 立即同步 UI） |
+| `POST /api/auth/password-change` | 修改本人登录密码 |
 
-### 管理员（每日查看 < 5 分钟）
-1. 打开 Dashboard → 默认管理员视角
-2. 先看「异常 / 掉线」卡片：是否有异常数
-3. 再扫 Stocktwits / Reddit 社区卡片底部「最后上报」：是否有运营超过 6 小时没刷新对应页面（立即私聊对方要求操作）
-4. 运营绩效条形图：每人负责的粉丝总量 / 社区覆盖排名
-5. 每周一导出 CSV 留存备案
+### 6.2 Dashboard 主数据
+| 路由 | 说明 |
+|------|------|
+| `GET /api/summary?days=30&operator_uid=xxx` | 全量聚合（latest_records / trend / platform_traffic / operator_stats / collector_machines / by_platform） |
+| `GET /api/export/csv` | RBAC 过虑后 UTF-8 BOM CSV，Excel 直接打开 |
+| `GET /api/post_frequency_calendar?operator_uid=&platform_keys[]=` | 366 天发布频率加权值 + 24 小时分布（v3.4 热力图 + 24h 曲线数据源） |
+
+### 6.3 采集端（插件 / Playwright）
+| 路由 | 说明 |
+|------|------|
+| `POST /api/heartbeat` | 3min 机器在线 |
+| `POST /api/collect-data` | **双防线**：白名单检查（不在白名单 → 200 但丢弃，提示配置）+ 解析校验；数据失败时保留历史值不填 0（CASE WHEN 条件更新） |
+| `POST /api/admin/accounts/{id}/logo` | PUT（v4.2）Base64 avatar_data_url 同步 logo 到数据库 |
+
+### 6.4 Admin 后台（4 Tab，`role=admin` 才能访问）
+| 路由 | 说明 |
+|------|------|
+| `GET /api/admin/accounts` + `POST /api/admin/accounts` + `PUT /api/admin/accounts/{id}` + `DELETE /api/admin/accounts/{id}` | 系统用户 CRUD（Tab 1） |
+| `POST /api/admin/accounts/{id}/reset-password` | 重置密码（16 位强密码，Toast 仅显示一次） |
+| `GET /api/admin/collector-tokens` + `POST /api/admin/collector-tokens` + `DELETE` | 采集器授权 Token（Tab 2，v4.2 搬家至此） |
+| `GET /api/admin/monitored-stocks` + `POST` + `PUT` + `DELETE` | 股票监控白名单（Tab 3，内联 Logo 上传） |
+| `GET /api/admin/monitored-communities` + `POST` + `PUT` + `DELETE` | 社区监控白名单（Tab 4，内联 Logo 上传） |
+| `GET /api/admin/audit-logs` | 审计日志（AUTH_LOGIN_OK / ADMIN_RESET_PASSWORD / ADMIN_DISABLE_USER 等事件） |
 
 ---
 
-## 7. 部署建议
+## 7. 发布频率加权口径（热力图格子颜色来源）
+
+```
+格子 value 加权（同一日同一平台多账号去重求和）：
+  = COUNT(posts)          -- 独立作品数
+  + SUM(posts_24h)        -- 平台报表 24h 发布数
+  + SUM(message_volume_24h)-- 社区消息量
+  + ⌊ SUM(views) / 500 ⌋   -- 阅读量折算
+  + ⌊ SUM(likes) / 20 ⌋    -- 点赞折算
+  + ⌊ SUM(comments) / 10 ⌋ -- 评论折算
+```
+
+5 阶色阶：
+```
+0 分：     白      ring-1 ring-black/[0.04]（所有空格子强制描边，视觉不缺块）
+1-10 分：   #DDFBE4 浅绿
+11-50 分：  #9AE6B4 中绿
+51-200 分： #38A169 深绿
+>200 分：   #22543D 墨绿
+```
+
+---
+
+## 8. 日常运营 SOP
+
+### 新同事入职（管理员 30 秒完成）
+1. 管理后台 → Tab 1 系统用户 → 新建账号 → 角色选「运营专员」→ 提交 → 复制弹出的 16 位密码
+2. 把 `用户名 + 初始密码 + Dashboard 登录页 URL` 发给同事
+3. 同事首次登录后，在「个人资料与安全」立即改昵称 + 改密码 + 选渐变头像（或上传自定义）
+4. 管理后台 → Tab 2 采集器授权 Token → 生成该同事专属 Token → 发给同事在插件 Popup 填
+5. Tab 3 股票监控 / Tab 4 社区监控 → 添加该同事负责的白名单 → 绑定归属运营
+6. 同事在运营电脑打开 `chrome://extensions` → 加载 `collector-extension/` → Popup 选自己名字、填机器昵称、填后端地址、填授权 Token → 保存 🟢
+7. 打开任意一个被分配的白名单页面 → 停留 ≥ 3s → Dashboard 对应卡片立刻出现真实数据
+
+### 管理员每日检查（< 5 分钟）
+1. 首页第 5 张「异常 / 掉线」卡：是否有 >0 标红
+2. 浏览 3 只 Stocktwits / 1 个 Reddit 底部「最后上报」：超过 6h 私聊运营
+3. 运营绩效对比条形图（仅 Admin 可见）：每人负责的粉丝 + 社区覆盖 + 异常数横向对比
+
+---
+
+## 9. 部署建议
 
 ### 本地单机（1 人团队）
-`python main_runner.py server` 挂后台 + Dashboard `npm run build` 后本地双击即可。定时采集 crontab `0 */6 * * * /usr/bin/python3 ~/matrix/python-runner/main_runner.py run`。
+```bash
+# 后端：screen/tmux 挂后台
+cd server && source .venv/bin/activate
+uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 
-### 团队协作（5-10 运营分布式）
-1. 找一台内网服务器（或者 1C2G 云服务器）跑 `python main_runner.py server`，开放 `8000` 端口（或用 Nginx 反代 HTTPS）
-2. 所有运营电脑的 Chrome 扩展 popup 填 `http://服务器IP:8000/api/collect`
-3. Supabase 建库，跑 `schema/supabase_schema.sql`；在 `main_runner.py` 中写入库逻辑（`records` 表结构已对齐），或直接把 `data.json` 目录定期 rsync 备份
-4. Dashboard 部署 Vercel：直接 drag `dashboard/` 文件夹 → Vercel，环境变量 `VITE_API_BASE=https://your-server.com/api`
-5. 可选：接入内部 SSO → 签发 HS256 JWT（`sub`=uid, `name`=xxx, `role`=admin|operator, 过期 8h）→ 父系统 iframe 嵌入 Dashboard 前写入 `localStorage.matrix_jwt_token`
-
----
-
-## 8. 常见问题（v2）
-
-**Q: 切换到运营视角后数据全空？**
-→ 运营 `op_001` 只有 7 个对象（5 账号 + 2 社区），如果开启了额外筛选器（比如平台=Reddit，op_001 没分配 Reddit）就会空。把平台切回 "所有平台" 即可。
-
-**Q: Stocktwits / Reddit 采集不到情绪 / Online？**
-→ 90% 场景：Reddit 未登录会把 Online 隐藏。解决：在指纹浏览器里登录一个 Reddit 账号（不需要订阅），再打开 Subreddit 就能看到 "X.Xk online"。
-→ 扩展有正则兜底，也可以在 content.js `extractStocktwits()` / `extractReddit()` 中打断点调试。
-
-**Q: 怎么判断哪个运营的哪个账号没上报？**
-→ Dashboard 管理员视角 → 表格按「最后上报」倒序 → 超过 6h 的会自动标异常。或者在社区卡片底部查看 "最后上报" / "来源机器"。
-
-**Q: iframe 嵌入在内部系统后 RBAC 不生效？**
-→ 父系统需要在 iframe URL 拼接 `?operator_uid=op_001` 或先在同域 localStorage 写 JWT。也可以通过 `postMessage` 通知 App：
-```js
-document.querySelector('iframe').contentWindow.postMessage(
-  { type: 'matrix_set_jwt', token: 'eyJhbGc...' }, '*'
-);
+# 前端：
+cd dashboard && npm run build
+# 产物在 dashboard/dist，双击 index.html 或 serve
 ```
-（v2 App 已预留 `window.addEventListener('message', ...)` 接入位置，在 `api.js` 中扩展即可）
+
+### 团队协作（5-10 人分布式）
+1. 1C2G 云服务器跑 `uvicorn main:app --port 8000 --workers 1 --host 0.0.0.0`（SQLite 单 worker 不锁库；>10 人切 PostgreSQL + schema/supabase_schema.sql）
+2. Nginx 反代 HTTPS：`matrix.company.com/api` → 8000，`matrix.company.com/` → Dashboard 静态
+3. Dashboard Vercel 部署：drag `dashboard/` → Vercel，`VITE_API_BASE=https://matrix.company.com/api`
+4. 采集白名单统一通过 Admin 后台维护，运营无需直接接触代码
+
+### 安全加固（上线前 4 项）
+| 项 | 操作 |
+|----|------|
+| JWT 签名密钥 | `server/.env` 中 `JWT_SECRET=$(openssl rand -hex 32)`；`REQUIRE_AUTH=true` 关闭匿名浏览 |
+| 插件请求签名 | `X-Matrix-Signature: HMAC-SHA256(body, SECRET)` 验签，防止伪造采集数据 |
+| CORS 白名单 | FastAPI CORSMiddleware `allow_origins` 从 `*` 改 `[https://matrix.company.com]` |
+| 管理账号 | admin 默认密码必改；bcrypt rounds=12 单哈希 ≥200ms |
 
 ---
 
-## 9. 文件索引（v2 全部写盘完成）
+## 10. v4.3 构建 + 质量验证（当前验证通过状态）
 
-- [chrome-extension/manifest.json](chrome-extension/manifest.json) v2.0.0（host+权限）
-- [chrome-extension/content.js](chrome-extension/content.js) v2（13 平台 + Stocktwits/Reddit COMMUNITY 提取）
-- [chrome-extension/background.js](chrome-extension/background.js) v2（7 个溯源 Header + Body 兜底 + JWT 解析 + Retry）
-- [chrome-extension/popup.html](chrome-extension/popup.html) v2（运营身份卡 + JWT 粘贴）
-- [python-runner/main_runner.py](python-runner/main_runner.py) v2（dataclass + STOCKTWITS_JS / REDDIT_JS / decode_jwt HS256 / apply_rbac / operator_stats 绩效视图 + iframe CSP）
-- [python-runner/accounts.json](python-runner/accounts.json) v2（4 operators + 16 ACCOUNT + 6 COMMUNITY）
-- [python-runner/data.sample.json](python-runner/data.sample.json) v2（11 条完整 COMMUNITY 记录 + operator/machine 溯源）
-- [dashboard/src/App.jsx](dashboard/src/App.jsx) v2（双视角 + 绩效条形 + Stocktwits/Reddit 专属卡 + 新表格列）
-- [dashboard/src/lib/api.js](dashboard/src/lib/api.js) v2（whoami + operator_uid=xxx 透传 + JWT session + RBAC CSV 列）
-- [dashboard/src/lib/mockData.js](dashboard/src/lib/mockData.js) v2（4 运营 + 10 账号 + 6 社区 + applyRBACFilter 过滤函数）
-- [schema/supabase_schema.sql](schema/supabase_schema.sql) v2（operators 表 + entity_type + 溯源字段 + vw_latest_records + vw_operator_performance）
-- [schema/sqlite_schema.sql](schema/sqlite_schema.sql) v2（SQLite 语义对齐版）
+```bash
+cd dashboard
+npm run build
+# → ✓ 2638 modules transformed.
+# → ✓ 0 fatal error
+
+# 代码质量（GetDiagnostics）
+# dashboard/src/App.jsx        → 0 errors
+# dashboard/src/lib/api.js    → 0 errors
+```
+
+浏览器 4 点实机 UI 验证通过（2026-09-15 v4.3 发布）：
+- ✅ Header「下载插件」按钮 → DownloadsPage ZIP 整包 → 返回看板
+- ✅ 平台曝光占比 18 平台图例全显，15 个 0.0% 正确
+- ✅ 昵称 Evan → 张总(管理)·v4 → header/面包屑即时同步，无需刷新
+- ✅ liveMode 观察 1 分钟，监测对象明细表数据非 0 增量跳变不再出现（原 15-25s 伪随机注入已完全删除）
+
+---
+
+## 11. 文件索引（v4.3 全部写盘完成）
+
+| 文件 | 版本 | 说明 |
+|------|------|------|
+| [README.md](README.md) | v4.3 | 本文档 · 版本时间线 · 18 平台 · 管理后台 Tab4 · 昵称同步 · 曝光饼图 18 平台 |
+| [README_STAGE2.md](README_STAGE2.md) | v4.3 | 采集插件安装 + 后端启动 + SSO 对接 + 环境变量 + 错误码（更新原自助注册移除/18平台/v4.3新能力） |
+| [server/main.py](server/main.py) | v4.3 | FastAPI SQLite · 18 PLATFORMS · JWT bcrypt · 白名单双防线 · CASE WHEN 保留历史值不填 0 |
+| [dashboard/src/App.jsx](dashboard/src/App.jsx) | v4.3 | 内嵌 6 页面：Login/Dashboard/Downloads/Profile/Admin/Tokens；onUpdateCurrentUser 昵称实时回调 |
+| [dashboard/src/lib/api.js](dashboard/src/lib/api.js) | v4.3 | 无 OPERATORS 假数据 fallback；所有空兜底 `\|\| 0`；PLATFORM_META 仅静态配置 |
+| [dashboard/src/lib/mockData.js](dashboard/src/lib/mockData.js) | v4.3 | PLATFORM_META 18 平台配置（非假数据）；OPERATORS 假运营列表已删除 |
+| [collector-extension/content.js](collector-extension/content.js) | v4.3 | extractStocktwitsStockMetrics / extractRedditCommunityMetrics / extractAvatar 上下文打分；白名单触发；头像采集失败兜底 |
+| [collector-extension/background.js](collector-extension/background.js) | v4.3 | 3 分钟心跳 + 60s / 满 50 批量上报 + 离线持久化队列 |
+| [collector-extension/manifest.json](collector-extension/manifest.json) | v4.3 | Manifest V3 权限清单 |
+| [collector-extension/rules.json](collector-extension/rules.json) | v4.3 | declarativeNetRequest CORS 白名单 |
+| [schema/supabase_schema.sql](schema/supabase_schema.sql) | v4.2 | PostgreSQL 生产版 DDL（users/operators/accounts/records/refresh_tokens/audit_logs/collector_tokens） |
+| [schema/sqlite_schema.sql](schema/sqlite_schema.sql) | v4.2 | SQLite 同语义版（server/main.py 已内建 DDL，首启动自动建库） |
