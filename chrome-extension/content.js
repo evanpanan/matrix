@@ -349,7 +349,10 @@
         { sel: 'meta[property="og:image"]', attr: 'content' },
       ],
       weibo: [
-        { sel: '.ProfileHeader_avatarWrap img, .ProfileAvatar_image img, .woo-avatar-img, img[class*=ProfileAvatar]', attr: ['src','data-src','data-original','srcset'] },
+        { sel: '.ProfileHeader_avatarWrap img, .ProfileAvatar_image img, .woo-avatar-img, img[class*=ProfileAvatar], [class*=Profile] [class*=Avatar] img, [class*=Header] [class*=Avatar] img, [class*=UserAvatar] img, [class*=userInfo] img, [class*=user-info] img, [class*=user_avatar] img', attr: ['src','data-src','data-original','srcset'] },
+        { sel: '[class*=Cover] + * img, [class*=Cover] ~ div img, [class*=Banner] + div img, header [class*=avatarWrap] img, [class*=AvatarWrap] img, [class*=avatar_wrap] img', attr: ['src','data-src','data-original','srcset'] },
+        { sel: 'img[src*=sinaimg.cn][src*=/crop/], img[src*=sinaimg.cn][src*=/avatar/], img[src*=sinaimg.cn][src*=/large/], img[src*=sinaimg.cn][src*=/orj360/], img[src*=sinaimg.cn][src*=/mw1024/]', attr: ['src','data-src','data-original'], all: true },
+        { sel: '[class*=Verify] ~ img, [class*=VIP] ~ img, [class*=Vip] ~ img, [class*=verified] ~ img, [class*=Verify] + img, [class*=VIP] + img, [class*=icon-v] + img', attr: ['src','data-src','data-original'] },
         { sel: '.W_fl img, .photo_wrap img, .avatar img, img[class*=avatar i]', attr: ['src','data-src','data-original'], all: true },
         { sel: 'img[src*="h5.sinaimg.cn/u"]', attr: ['src','data-src'], all: true },
         { sel: 'img[src*="avatar"]', attr: ['src','data-src','data-original'], all: true },
@@ -451,6 +454,37 @@
     const list = rules[ruleKey] || rules[platform.key] || [{ sel: 'meta[property="og:image"]', attr: 'content' }];
     const r = _tryAll(list);
     if (r && (r.url || r.data_url)) return r;
+    if (platform.key === 'weibo') {
+      try {
+        const rectOf = (el) => { try { return el.getBoundingClientRect(); } catch { return { top: 0, left: 0, width: 0, height: 0 }; } };
+        const allImgs = Array.from(document.querySelectorAll('img'));
+        const scored = allImgs.map((el, idx) => {
+          const s = _srcOf(el, 'src') || _srcOf(el, 'data-src') || _srcOf(el, 'data-original') || _srcOf(el, 'srcset');
+          if (!s) return null;
+          const w = Math.max((el.naturalWidth || 0), (el.width || 0));
+          const h = Math.max((el.naturalHeight || 0), (el.height || 0));
+          if (w < 60 || h < 60) return null;
+          if (w > 1500 || h > 1500) return null;
+          const ratio = w && h ? (w > h ? w / h : h / w) : 99;
+          if (ratio > 1.35) return null;
+          const srcStr = String(s).toLowerCase();
+          if (!/sinaimg\.cn/i.test(srcStr)) return null;
+          const rect = rectOf(el);
+          const y = (rect.top || 0) + window.scrollY;
+          if (y > 900) return null;
+          const area = w * h;
+          let bonus = 0;
+          if (/(avatar|头像|profile|user|用户)/i.test([el.id || '', typeof el.className === 'string' ? el.className : '', el.alt || ''].join(' '))) bonus += 15;
+          if (/(crop|avatar|large|orj360|mw1024)/i.test(srcStr)) bonus += 12;
+          if (y < 500) bonus += 8;
+          return { s, score: bonus + Math.log10(1 + area) * 2 - ratio * 2, y, area };
+        }).filter(Boolean).sort((a, b) => b.score - a.score);
+        for (const c of (scored || []).slice(0, 3)) {
+          const fr = _fix(c.s);
+          if (fr && (fr.url || fr.data_url)) return fr;
+        }
+      } catch {}
+    }
     try {
       const imgs = Array.from(document.querySelectorAll('img'))
         .slice(0, 40)
@@ -711,6 +745,21 @@
     return 0;
   }
 
+  function extractViewsAccount(platform) {
+    const labels = (platform.key === 'weibo')
+      ? ['阅读', '阅读量', '浏览', '播放', '播放量', '累计播放', '视频累计播放量', '累计阅读']
+      : (platform.key && ((FIELD_META_BY_PLATFORM[platform.key] || {}).views || {}).nativeNames) || ['阅读', '阅读量', '浏览', '播放', '播放量'];
+    const labelsPat = (labels || []).map(l => typeof l === 'string' ? l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : (l instanceof RegExp ? l.source : l)).join('|');
+    const full = (document.body ? document.body.innerText : '');
+    if (labelsPat) {
+      let m = full.match(new RegExp(`(${labelsPat})[^\\d]{0,12}([\\d,.]+)\\s*(亿|万|k|m|b)?`, 'i'));
+      if (m) return toNum(m[2] + (m[3] || ''));
+      m = full.match(new RegExp(`([\\d,.]+)(?:\\s*(亿|万|k|m|b)\\s{0,2}|\\s{0,2})(${labelsPat})`, 'i'));
+      if (m) return toNum(m[1] + (m[2] || ''));
+    }
+    return 0;
+  }
+
   function extractRawFieldsSnapshot(platform, { followers, following, likesTotal, postsCount, views, comments }) {
     const meta = FIELD_META_BY_PLATFORM[platform.key] || {};
     const snap = {};
@@ -731,7 +780,7 @@
     const rules = {
       xiaohongshu: { list: '.note-item, .feeds-container .note, a[href^="/explore/"]', title: '.title, .content, h3, p', views: '.view, .count', likes: '.like-wrapper .count, .like, .icon-like + span', comments: '.comment, .icon-comment + span', url: 'a[href]', date: '.date, .time', cover: 'img.cover, img[class*=cover], img:not([srcset])' },
       douyin: { list: 'li[data-e2e=user-post-item-list-item], div[class*=video-card], a[href^="/video/"]', title: 'div[data-e2e=user-post-item-desc]', views: 'div[data-e2e=user-post-item-play-count], .play-count', likes: 'div[data-e2e=user-post-item-digg], .digg-count', comments: '.comment-count', url: 'a[href]', date: '.time', cover: 'img, img[class*=cover], img[class*=thumbnail]' },
-      weibo: { list: '.WB_cardwrap[class*=S_bg2]', title: '.WB_text, .content', views: '.WB_from a', viewsRx: /阅读\s*([\d.]+万?)/i, likes: '.WB_feed_handle .pos span:nth-child(3) em', comments: '.WB_feed_handle .pos span:nth-child(2) em', url: '.WB_from a[href]', date: '.WB_from a', cover: 'img.WB_pic, img[src*=sinaimg.cn]' },
+      weibo: { list: 'div[class*=feed] > div, div[class*=Feed_item], div[class*=Card_wrap], div[class*=card-wrap], div[class*=weibo-item], article, [class*=vue-recycle-scroller] > div > div, .WB_cardwrap[class*=S_bg2]', title: '.WB_text, .content, [class*=weibo-text], [class*=Feed_item_content], [class*=text], p, [class*=detail] [class*=content]', views: '[class*=views], [class*=read-count], [class*=WB_from], .WB_from a, [class*=count]', viewsRx: /阅读\s*([\d.]+万?)/i, likes: '.WB_feed_handle .pos span:nth-child(3) em, [aria-label*=like] span, [class*=like-count], [class*=likes], button[class*=like] span, [class*=icon-like] + span, [class*=feed_handle] span:nth-child(3) em', comments: '.WB_feed_handle .pos span:nth-child(2) em, [aria-label*=comment] span, [class*=comment-count], [class*=comments], button[class*=comment] span, [class*=icon-comment] + span, [class*=feed_handle] span:nth-child(2) em', url: '.WB_from a[href], a[href*=status], a[href*=/weibo/], [class*=from] a, [class*=time] a', date: '.WB_from a, time, [class*=from] a, [class*=time], [class*=publish]', cover: 'img.WB_pic, img[src*=sinaimg.cn], img[class*=pic], img[class*=cover], img[class*=media]' },
       bilibili: { list: '.small-item, .video-list-item, li.small-item', title: '.title, .info .title', views: '.so-icon, .play', likes: '.like, .fav', comments: '.comment, .danmaku', url: 'a[href]', date: '.time', cover: 'img, .cover img, .pic img' },
       x: { list: 'article[data-testid=tweet], div[data-testid=cellInnerDiv]', title: 'div[data-testid=tweetText]', views: 'div[aria-label*=views], a[href$=analytics] span', likes: 'button[data-testid=like] div, div[data-testid=like] span', comments: 'button[data-testid=reply] div, div[data-testid=reply] span', url: 'a[href*=status]', date: 'time', cover: 'img[src*=pbs.twimg.com/media], div[aria-label*=Image] img, article img' },
       tiktok: { list: 'div[data-e2e=user-post-item], a[href^=/video/]', title: 'div[data-e2e=user-post-item-desc]', views: 'div[data-e2e=user-post-item-play-count], strong', likes: 'div[data-e2e=user-post-item-digg] strong', comments: '.comment-count', url: 'a[href]', date: '.time', cover: 'img, img[class*=cover], img[class*=thumbnail]' },
@@ -1075,7 +1124,9 @@
           const avatar = extractAvatar(platform);
           const posts = extractPosts(platform);
           const latest_post = posts[0] || null;
-          const views = posts.reduce((s, p) => s + (p.views || 0), 0);
+          const postsViewsSum = posts.reduce((s, p) => s + (p.views || 0), 0);
+          const accountViews = extractViewsAccount(platform);
+          const views = Math.max(postsViewsSum, accountViews);
           const postLikesSum = posts.reduce((s, p) => s + (p.likes || 0), 0);
           const comments = posts.reduce((s, p) => s + (p.comments || 0), 0);
           const likes = likesTotal > 0 ? likesTotal : postLikesSum;
