@@ -246,7 +246,7 @@
 
   function extractAccountId(platform) {
     const rules = {
-      xiaohongshu: { patterns: [/小红?书号\s*[:：]\s*([A-Za-z0-9_\-]{4,})/i, /ID\s*[:：]\s*([A-Za-z0-9_\-]{4,})/i], selectors: ['[class*=uid]', '[class*=account-id]', '[class*=user-id]'] },
+      xiaohongshu: { patterns: [/小红?书号\s*[:：]\s*([A-Za-z0-9_\-]{4,})/i, /ID\s*[:：]\s*([A-Za-z0-9_\-]{4,})/i], selectors: ['[class*="uid"]', '[class*="account-id"]', '[class*="user-id"]'] },
     };
     const r = rules[platform.key];
     if (!r) return '';
@@ -312,18 +312,18 @@
     }
     const rules = {
       xiaohongshu: [
-        { sel: 'header img[class*=avatar]', attr: ['src','data-src','data-original-src'] },
+        { sel: 'header img[class*="avatar"]', attr: ['src','data-src','data-original-src'] },
         { sel: '.user-info img', attr: ['src','data-src'] },
-        { sel: 'img[class*=avatar i]', attr: ['src','data-src','data-original-src'], all: true },
+        { sel: 'img[class*="avatar" i]', attr: ['src','data-src','data-original-src'], all: true },
         { sel: 'img[src*="sns-avatar"]', attr: 'src' },
         { sel: 'img[src*="xhslink"]', attr: 'src', all: true },
         { sel: 'img[src*="qpic.cn"]', attr: 'src', all: true },
         { sel: 'a[href*="/user/profile/"] img', attr: ['src','data-src'], all: true },
-        { sel: 'div[class*=avatar i]', attr: 'style' },
+        { sel: 'div[class*="avatar" i]', attr: 'style' },
         { sel: 'meta[property="og:image"]', attr: 'content' },
       ],
       douyin: [
-        { sel: 'img[class*=avatar]', attr: ['src','data-src'], all: true },
+        { sel: 'img[class*="avatar"]', attr: ['src','data-src'], all: true },
         { sel: '.user-info img', attr: ['src','data-src'] },
         { sel: 'header img', attr: ['src','data-src'] },
         { sel: 'meta[property="og:image"]', attr: 'content' },
@@ -349,7 +349,7 @@
       ],
       tiktok: [
         { sel: '[data-e2e="user-avatar"] img', attr: 'src' },
-        { sel: 'img[class*=avatar i]', attr: ['src','data-src'], all: true },
+        { sel: 'img[class*="avatar" i]', attr: ['src','data-src'], all: true },
         { sel: 'meta[property="og:image"]', attr: 'content' },
       ],
       youtube: [
@@ -358,14 +358,14 @@
         { sel: 'meta[property="og:image"]', attr: 'content' },
       ],
       weibo: [
-        { sel: '.ProfileHeader_avatarWrap img, .ProfileAvatar_image img, .woo-avatar-img, img[class*=ProfileAvatar], [class*=Profile] [class*=Avatar] img, [class*=Header] [class*=Avatar] img, [class*=UserAvatar] img, [class*=userInfo] img, [class*=user-info] img, [class*=user_avatar] img', attr: ['src','data-src','data-original','srcset'] },
-        { sel: '[class*=Cover] + * img, [class*=Cover] ~ div img, [class*=Banner] + div img, header [class*=avatarWrap] img, [class*=AvatarWrap] img, [class*=avatar_wrap] img', attr: ['src','data-src','data-original','srcset'] },
-        { sel: 'img[src*=sinaimg.cn][src*=/crop/], img[src*=sinaimg.cn][src*=/avatar/], img[src*=sinaimg.cn][src*=/large/], img[src*=sinaimg.cn][src*=/orj360/], img[src*=sinaimg.cn][src*=/mw1024/]', attr: ['src','data-src','data-original'], all: true },
-        { sel: '[class*=Verify] ~ img, [class*=VIP] ~ img, [class*=Vip] ~ img, [class*=verified] ~ img, [class*=Verify] + img, [class*=VIP] + img, [class*=icon-v] + img', attr: ['src','data-src','data-original'] },
-        { sel: '.W_fl img, .photo_wrap img, .avatar img, img[class*=avatar i]', attr: ['src','data-src','data-original'], all: true },
+        { sel: '.ProfileHeader_avatarWrap img, .ProfileAvatar_image img, .woo-avatar-img, img[class*="ProfileAvatar"], [class*="Profile"] [class*="Avatar"] img, [class*="Header"] [class*="Avatar"] img, [class*="UserAvatar"] img, [class*="userInfo"] img, [class*="user-info"] img, [class*="user_avatar"] img', attr: ['src','data-src','data-original','srcset'] },
+        { sel: '[class*="Cover"] + * img, [class*="Cover"] ~ div img, [class*="Banner"] + div img, header [class*="avatarWrap"] img, [class*="AvatarWrap"] img, [class*="avatar_wrap"] img', attr: ['src','data-src','data-original','srcset'] },
+        { sel: 'img[src*="sinaimg.cn"][src*="/crop/"], img[src*="sinaimg.cn"][src*="/avatar/"], img[src*="sinaimg.cn"][src*="/large/"], img[src*="sinaimg.cn"][src*="/orj360/"], img[src*="sinaimg.cn"][src*="/mw1024/"]', attr: ['src','data-src','data-original'], all: true },
+        { sel: '[class*="Verify"] ~ img, [class*="VIP"] ~ img, [class*="Vip"] ~ img, [class*="verified"] ~ img, [class*="Verify"] + img, [class*="VIP"] + img, [class*="icon-v"] + img', attr: ['src','data-src','data-original'] },
+        { sel: '.W_fl img, .photo_wrap img, .avatar img, img[class*="avatar" i]', attr: ['src','data-src','data-original'], all: true },
         { sel: 'img[src*="h5.sinaimg.cn/u"]', attr: ['src','data-src'], all: true },
         { sel: 'img[src*="avatar"]', attr: ['src','data-src','data-original'], all: true },
-        { sel: 'header img, [class*=header] img:first-of-type', attr: ['src','data-src','data-original'], all: true },
+        { sel: 'header img, [class*="header"] img:first-of-type', attr: ['src','data-src','data-original'], all: true },
       ],
       bilibili: [
         { sel: '.h-avatar', attr: ['src','data-src'] },
@@ -375,64 +375,64 @@
       ],
       zhihu: [
         { sel: '.ProfileHeader-avatar img', attr: 'src' },
-        { sel: 'img[class*=Avatar]', attr: ['src','data-src'], all: true },
+        { sel: 'img[class*="Avatar"]', attr: ['src','data-src'], all: true },
         { sel: 'meta[property="og:image"]', attr: 'content' },
       ],
       stocktwits: [
         { sel: '[class*="SymbolHeader"] img', attr: ['src','data-src'] },
-        { sel: '[class*="CompanyLogo"] img, [class*=symbol-logo] img, [class*=stock-logo] img', attr: ['src','data-src'], all: true },
-        { sel: '[aria-label*="logo" i] img, [role=img][aria-label*="logo" i]', attr: ['src','data-src'] },
+        { sel: '[class*="CompanyLogo"] img, [class*="symbol-logo"] img, [class*="stock-logo"] img', attr: ['src','data-src'], all: true },
+        { sel: '[aria-label*="logo" i] img, [role="img"][aria-label*="logo" i]', attr: ['src','data-src'] },
         { sel: 'h1 ~ img, h1 + * img', attr: 'src' },
-        { sel: '.UserHeader__avatar img, [class*=Header] img, header img, [class*=Profile] img, [class*=profile] img', attr: ['src','data-src'] },
-        { sel: 'img[class*=Avatar i], img[class*=avatar i]', attr: ['src','data-src'], all: true },
+        { sel: '.UserHeader__avatar img, [class*="Header"] img, header img, [class*="Profile"] img, [class*="profile"] img', attr: ['src','data-src'] },
+        { sel: 'img[class*="Avatar" i], img[class*="avatar" i]', attr: ['src','data-src'], all: true },
         { sel: 'img[src*="logo" i]', attr: 'src', all: true },
         { sel: 'link[rel*="icon" i]', attr: 'href' },
         { sel: 'meta[property="og:image"]', attr: 'content' },
       ],
       _stocktwits_symbol: [
         { sel: '[class*="SymbolHeader"] img', attr: ['src','data-src'] },
-        { sel: '[class*="CompanyLogo"] img, [class*=symbol-logo] img, [class*=stock-logo] img', attr: ['src','data-src'], all: true },
-        { sel: '[aria-label*="logo" i] img, [role=img][aria-label*="logo" i]', attr: ['src','data-src'] },
+        { sel: '[class*="CompanyLogo"] img, [class*="symbol-logo"] img, [class*="stock-logo"] img', attr: ['src','data-src'], all: true },
+        { sel: '[aria-label*="logo" i] img, [role="img"][aria-label*="logo" i]', attr: ['src','data-src'] },
         { sel: 'h1 ~ img, h1 + * img', attr: 'src' },
         { sel: 'img[src*="logo" i], img[src*="ticker" i], img[src*="company" i]', attr: 'src', all: true },
         { sel: 'link[rel*="icon" i]', attr: 'href' },
         { sel: 'meta[property="og:image"]', attr: 'content' },
       ],
       reddit: [
-        { sel: '[data-testid="subreddit-icon"] img, [data-testid=community-icon] img, [data-testid="subreddit-banner-icon"] img', attr: ['src','data-src'] },
-        { sel: '[about^="/r/"] img, [class*=SubredditIcon] img, [class*=community-header] img, [class*=subreddit-icon] img', attr: ['src','data-src'], all: true },
+        { sel: '[data-testid="subreddit-icon"] img, [data-testid="community-icon"] img, [data-testid="subreddit-banner-icon"] img', attr: ['src','data-src'] },
+        { sel: '[about^="/r/"] img, [class*="SubredditIcon"] img, [class*="community-header"] img, [class*="subreddit-icon"] img', attr: ['src','data-src'], all: true },
         { sel: 'img[src*="styles.redditmedia" i], img[src*="redd.it" i]', attr: 'src', all: true },
-        { sel: 'img[class*=avatar i]', attr: ['src','data-src'], all: true },
+        { sel: 'img[class*="avatar" i]', attr: ['src','data-src'], all: true },
         { sel: 'link[rel*="icon" i]', attr: 'href' },
         { sel: 'meta[property="og:image"]', attr: 'content' },
       ],
       _reddit_subreddit: [
-        { sel: '[data-testid="subreddit-icon"] img, [data-testid=community-icon] img, [data-testid="subreddit-banner-icon"] img', attr: ['src','data-src'] },
-        { sel: '[about^="/r/"] img, [class*=SubredditIcon] img, [class*=community-header] img, [class*=subreddit-icon] img', attr: ['src','data-src'], all: true },
+        { sel: '[data-testid="subreddit-icon"] img, [data-testid="community-icon"] img, [data-testid="subreddit-banner-icon"] img', attr: ['src','data-src'] },
+        { sel: '[about^="/r/"] img, [class*="SubredditIcon"] img, [class*="community-header"] img, [class*="subreddit-icon"] img', attr: ['src','data-src'], all: true },
         { sel: 'img[src*="styles.redditmedia" i], img[src*="redd.it" i]', attr: 'src', all: true },
         { sel: 'link[rel*="icon" i]', attr: 'href' },
         { sel: 'meta[property="og:image"]', attr: 'content' },
       ],
       linkedin: [
         { sel: '.pv-top-card--photo img', attr: ['src','data-delayed-url','data-src'] },
-        { sel: 'img[class*=profile i]', attr: ['src','data-delayed-url'], all: true },
+        { sel: 'img[class*="profile" i]', attr: ['src','data-delayed-url'], all: true },
         { sel: 'meta[property="og:image"]', attr: 'content' },
       ],
       xueqiu: [
         { sel: '.user-card img', attr: ['src','data-src'] },
         { sel: '.Avatar img', attr: ['src','data-src'] },
-        { sel: 'img[class*=avatar i]', attr: ['src','data-src'], all: true },
+        { sel: 'img[class*="avatar" i]', attr: ['src','data-src'], all: true },
       ],
       futu: [
         { sel: '.user-header img', attr: ['src','data-src'] },
-        { sel: 'img[class*=avatar i]', attr: ['src','data-src'], all: true },
+        { sel: 'img[class*="avatar" i]', attr: ['src','data-src'], all: true },
       ],
       laohu: [
         { sel: '.user-avatar img', attr: ['src','data-src'] },
-        { sel: 'img[class*=avatar i]', attr: ['src','data-src'], all: true },
+        { sel: 'img[class*="avatar" i]', attr: ['src','data-src'], all: true },
       ],
       discord: [
-        { sel: 'img[class*=avatar i]', attr: ['src','data-src'], all: true },
+        { sel: 'img[class*="avatar" i]', attr: ['src','data-src'], all: true },
         { sel: 'meta[property="og:image"]', attr: 'content' },
       ],
       telegram: [
@@ -442,16 +442,16 @@
       seekingalpha: [
         { sel: '.author-avatar img', attr: ['src','data-src'] },
         { sel: '.profile-avatar img', attr: ['src','data-src'] },
-        { sel: 'img[class*=avatar i]', attr: ['src','data-src'], all: true },
+        { sel: 'img[class*="avatar" i]', attr: ['src','data-src'], all: true },
       ],
       tieba: [
         { sel: '.userinfo_wrap img', attr: ['src','data-src'] },
         { sel: '.portrait img', attr: ['src','data-src'] },
-        { sel: 'img[class*=avatar i]', attr: ['src','data-src'], all: true },
+        { sel: 'img[class*="avatar" i]', attr: ['src','data-src'], all: true },
       ],
       changqiao: [
         { sel: '.avatar img', attr: ['src','data-src'] },
-        { sel: 'img[class*=avatar i]', attr: ['src','data-src'], all: true },
+        { sel: 'img[class*="avatar" i]', attr: ['src','data-src'], all: true },
       ],
     };
     const pathname = (location && location.pathname) ? location.pathname : '';
@@ -537,24 +537,24 @@
   function extractAccountName(platform) {
     const fallback = (document.title || '').replace(/[｜|\-—_].*$/, '').trim() || location.pathname.replace(/\//g, ' ').trim() || 'Unknown';
     const selectors = {
-      xiaohongshu: ['h1', '[class*=nick]', '[class*=name-wrap] h1', '[class*=user-info] [class*=name]', '[class*=header] [class*=title]'],
-      douyin: ['.author-name', '.user-name', '[class*=nick]', 'h1'],
-      wechat: ['.rich_media_meta_nickname', '#js_name', '.profile_nickname', '.weui-desktop-mass-account__name', '.account-name__text', '.weui-desktop-layout__left-side [class*=account] .name'],
-      weibo: ['.username', '.name', '[class*=name] .W_fb', 'h1'],
+      xiaohongshu: ['h1', '[class*="nick"]', '[class*="name-wrap"] h1', '[class*="user-info"] [class*="name"]', '[class*="header"] [class*="title"]'],
+      douyin: ['.author-name', '.user-name', '[class*="nick"]', 'h1'],
+      wechat: ['.rich_media_meta_nickname', '#js_name', '.profile_nickname', '.weui-desktop-mass-account__name', '.account-name__text', '.weui-desktop-layout__left-side [class*="account"] .name'],
+      weibo: ['.username', '.name', '[class*="name"] .W_fb', 'h1'],
       bilibili: ['.username', 'h1.user-name', '#h-name', '.name'],
       zhihu: ['.ProfileHeader-name', '.UserLink-link', 'h1'],
       futu: ['.user-name', '.nick-name', '.name', 'h1'],
       laohu: ['.user-name', '.nickname', 'h1'],
       xueqiu: ['.name', '.user-name', '.screen-name', 'h1'],
-      x: ['[data-testid=User-Name]', 'div[data-testid=UserProfileHeader_Items] + div h2', 'h1'],
-      tiktok: [['h2[data-e2e=user-title]', '[data-e2e=user-nickname]', 'h1']],
+      x: ['[data-testid="User-Name"]', 'div[data-testid="UserProfileHeader_Items"] + div h2', 'h1'],
+      tiktok: [['h2[data-e2e="user-title"]', '[data-e2e="user-nickname"]', 'h1']],
       youtube: ['#channel-title yt-formatted-string', 'h1 yt-formatted-string', '.ytd-channel-name'],
       linkedin: ['.text-heading-xlarge', '.pv-text-details__left-panel h1', 'h1'],
       instagram: ['header h2', 'h1', '._aada'],
       telegram: ['.tgme_page_title', '.channel_header_title', 'h1'],
       discord: ['.name-2m3Cms', 'h1'],
-      stocktwits: ['.with-header-user-name', '.UserHeader__username', '[class*=username]', '[class*=screen-name]', '[class*=Header] [class*=name]', '[class*=UserHeader] h2', '[class*=UserHeader] h1', 'header h2', 'header h1', 'h1'],
-      reddit: ['[data-testid=top-bar-title]', 'h1', '.subredditname'],
+      stocktwits: ['.with-header-user-name', '.UserHeader__username', '[class*="username"]', '[class*="screen-name"]', '[class*="Header"] [class*="name"]', '[class*="UserHeader"] h2', '[class*="UserHeader"] h1', 'header h2', 'header h1', 'h1'],
+      reddit: ['[data-testid="top-bar-title"]', 'h1', '.subredditname'],
       seekingalpha: ['.profile-name', '.author-name', 'h1'],
       tieba: ['.card_head_title', '.tbui_title_wrap h1', 'h1'],
       changqiao: ['.user-name', 'h1', '.name'],
@@ -798,21 +798,21 @@
   function extractPosts(platform) {
     const out = [];
     const rules = {
-      xiaohongshu: { list: '.note-item, .feeds-container .note, a[href^="/explore/"]', title: '.title, .content, h3, p', views: '.view, .count', likes: '.like-wrapper .count, .like, .icon-like + span', comments: '.comment, .icon-comment + span', url: 'a[href]', date: '.date, .time', cover: 'img.cover, img[class*=cover], img:not([srcset])' },
-      douyin: { list: 'li[data-e2e=user-post-item-list-item], div[class*=video-card], a[href^="/video/"]', title: 'div[data-e2e=user-post-item-desc]', views: 'div[data-e2e=user-post-item-play-count], .play-count', likes: 'div[data-e2e=user-post-item-digg], .digg-count', comments: '.comment-count', url: 'a[href]', date: '.time', cover: 'img, img[class*=cover], img[class*=thumbnail]' },
-      weibo: { list: 'div[class*=feed] > div, div[class*=Feed_item], div[class*=Card_wrap], div[class*=card-wrap], div[class*=weibo-item], article, [class*=vue-recycle-scroller] > div > div, .WB_cardwrap[class*=S_bg2]', title: '.WB_text, .content, [class*=weibo-text], [class*=Feed_item_content], [class*=text], p, [class*=detail] [class*=content]', views: '[class*=views], [class*=read-count], [class*=WB_from], .WB_from a, [class*=count]', viewsRx: /阅读\s*([\d.]+万?)/i, likes: '.WB_feed_handle .pos span:nth-child(3) em, [aria-label*=like] span, [class*=like-count], [class*=likes], button[class*=like] span, [class*=icon-like] + span, [class*=feed_handle] span:nth-child(3) em', comments: '.WB_feed_handle .pos span:nth-child(2) em, [aria-label*=comment] span, [class*=comment-count], [class*=comments], button[class*=comment] span, [class*=icon-comment] + span, [class*=feed_handle] span:nth-child(2) em', url: '.WB_from a[href], a[href*=status], a[href*=/weibo/], [class*=from] a, [class*=time] a', date: '.WB_from a, time, [class*=from] a, [class*=time], [class*=publish]', cover: 'img.WB_pic, img[src*=sinaimg.cn], img[class*=pic], img[class*=cover], img[class*=media]' },
+      xiaohongshu: { list: '.note-item, .feeds-container .note, a[href^="/explore/"]', title: '.title, .content, h3, p', views: '.view, .count', likes: '.like-wrapper .count, .like, .icon-like + span', comments: '.comment, .icon-comment + span', url: 'a[href]', date: '.date, .time', cover: 'img.cover, img[class*="cover"], img:not([srcset])' },
+      douyin: { list: 'li[data-e2e="user-post-item-list-item"], div[class*="video-card"], a[href^="/video/"]', title: 'div[data-e2e="user-post-item-desc"]', views: 'div[data-e2e="user-post-item-play-count"], .play-count', likes: 'div[data-e2e="user-post-item-digg"], .digg-count', comments: '.comment-count', url: 'a[href]', date: '.time', cover: 'img, img[class*="cover"], img[class*="thumbnail"]' },
+      weibo: { list: 'div[class*="feed"] > div, div[class*="Feed_item"], div[class*="Card_wrap"], div[class*="card-wrap"], div[class*="weibo-item"], article, [class*="vue-recycle-scroller"] > div > div, .WB_cardwrap[class*="S_bg2"]', title: '.WB_text, .content, [class*="weibo-text"], [class*="Feed_item_content"], [class*="text"], p, [class*="detail"] [class*="content"]', views: '[class*="views"], [class*="read-count"], [class*="WB_from"], .WB_from a, [class*="count"]', viewsRx: /阅读\s*([\d.]+万?)/i, likes: '.WB_feed_handle .pos span:nth-child(3) em, [aria-label*="like"] span, [class*="like-count"], [class*="likes"], button[class*="like"] span, [class*="icon-like"] + span, [class*="feed_handle"] span:nth-child(3) em', comments: '.WB_feed_handle .pos span:nth-child(2) em, [aria-label*="comment"] span, [class*="comment-count"], [class*="comments"], button[class*="comment"] span, [class*="icon-comment"] + span, [class*="feed_handle"] span:nth-child(2) em', url: '.WB_from a[href], a[href*="status"], a[href*="/weibo/"], [class*="from"] a, [class*="time"] a', date: '.WB_from a, time, [class*="from"] a, [class*="time"], [class*="publish"]', cover: 'img.WB_pic, img[src*="sinaimg.cn"], img[class*="pic"], img[class*="cover"], img[class*="media"]' },
       bilibili: { list: '.small-item, .video-list-item, li.small-item', title: '.title, .info .title', views: '.so-icon, .play', likes: '.like, .fav', comments: '.comment, .danmaku', url: 'a[href]', date: '.time', cover: 'img, .cover img, .pic img' },
-      x: { list: 'article[data-testid=tweet], div[data-testid=cellInnerDiv]', title: 'div[data-testid=tweetText]', views: 'div[aria-label*=views], a[href$=analytics] span', likes: 'button[data-testid=like] div, div[data-testid=like] span', comments: 'button[data-testid=reply] div, div[data-testid=reply] span', url: 'a[href*=status]', date: 'time', cover: 'img[src*=pbs.twimg.com/media], div[aria-label*=Image] img, article img' },
-      tiktok: { list: 'div[data-e2e=user-post-item], a[href^=/video/]', title: 'div[data-e2e=user-post-item-desc]', views: 'div[data-e2e=user-post-item-play-count], strong', likes: 'div[data-e2e=user-post-item-digg] strong', comments: '.comment-count', url: 'a[href]', date: '.time', cover: 'img, img[class*=cover], img[class*=thumbnail]' },
-      xueqiu: { list: '.status-list .status, article, .AnonymousHome_home__timeline-item', title: '.status-title, .status-content', views: '.status-source, .retweet', likes: '.iconfont.icon-like + span, .like-count', comments: '.reply-count, .iconfont.icon-comment + span', url: 'a[href^=/status/]', date: '.status-source a, time', cover: 'img' },
+      x: { list: 'article[data-testid="tweet"], div[data-testid="cellInnerDiv"]', title: 'div[data-testid="tweetText"]', views: 'div[aria-label*="views"], a[href$="analytics"] span', likes: 'button[data-testid="like"] div, div[data-testid="like"] span', comments: 'button[data-testid="reply"] div, div[data-testid="reply"] span', url: 'a[href*="status"]', date: 'time', cover: 'img[src*="pbs.twimg.com/media"], div[aria-label*="Image"] img, article img' },
+      tiktok: { list: 'div[data-e2e="user-post-item"], a[href^="/video/"]', title: 'div[data-e2e="user-post-item-desc"]', views: 'div[data-e2e="user-post-item-play-count"], strong', likes: 'div[data-e2e="user-post-item-digg"] strong', comments: '.comment-count', url: 'a[href]', date: '.time', cover: 'img, img[class*="cover"], img[class*="thumbnail"]' },
+      xueqiu: { list: '.status-list .status, article, .AnonymousHome_home__timeline-item', title: '.status-title, .status-content', views: '.status-source, .retweet', likes: '.iconfont.icon-like + span, .like-count', comments: '.reply-count, .iconfont.icon-comment + span', url: 'a[href^="/status/"]', date: '.status-source a, time', cover: 'img' },
       futu: { list: '.momo-post, .article-item, .feed-item', title: '.title, .content', views: '.read-count, .view-count', likes: '.like-count, .digg-count', comments: '.comment-count', url: 'a[href]', date: '.time', cover: 'img' },
       youtube: { list: '#contents ytd-grid-video-renderer, ytd-rich-grid-media', title: '#video-title yt-formatted-string', views: '#metadata-line yt-formatted-string:nth-child(1)', likes: '', comments: '', url: '#video-title', date: '#metadata-line yt-formatted-string:nth-child(2)', cover: 'ytd-thumbnail img, #thumbnail img, img' },
-      stocktwits: { list: 'article, div[class*=Message], div[class*=message-item], div[class*=Post], div[class*=post-item], div[class*=Stream] > div, div[class*=stream] > div, section[class*=post], article.message, .stream-item', title: '.Message_content, [class*=Message] [class*=content], [class*=Post] [class*=content], [class*=post] [class*=content], [class*=message] [class*=body], [class*=message] [class*=text], .content, p', views: '.views', likes: '.like-count, .like-btn span, button[aria-label*=like] span, [class*=likes] span, [class*=like] span, [class*=icon-like] + span, [class*=post] [class*=actions] [class*=like] em, [class*=Post] [class*=actions] [class*=like] em', comments: '.reply-count, button[aria-label*=reply] span, [class*=comments] span, [class*=comment] span, [class*=icon-comment] + span, [class*=post] [class*=actions] [class*=reply] em, [class*=Post] [class*=actions] [class*=reply] em', url: 'a[href*=messages/], a[href*=/message/], [class*=time] a, a[href*=statuses]', date: 'time, [class*=time], [class*=date]', cover: 'img' },
-      reddit: { list: 'div[data-testid=post-container], .Post', title: 'h3', views: '[data-testid=vote-arrows] + div', likes: '[data-testid=vote-arrows]', comments: '[data-testid=comments-count]', url: 'a[data-testid=comments-page-link]', date: 'time', cover: 'img' },
-      zhihu: { list: '.ContentItem, .List-item, article', title: '.ContentItem-title, h2', views: '.ContentItem-meta .number + span', viewsRx: /阅读\s*([\d.]+万?)/i, likes: '.VoteButton--up .count', comments: '.ContentItem-actions .Button--plain', commentsRx: /评论\s*(\d+)/, url: 'a[href*=answer], a[href*=p/]', date: '.ContentItem-time', cover: 'img' },
-      instagram: { list: 'article a[href*=/p/]', title: 'img[alt]', views: '', likes: '', comments: '', url: 'a[href]', date: 'time', cover: 'img, img[src*=cdninstagram]' },
+      stocktwits: { list: 'article, div[class*="Message"], div[class*="message-item"], div[class*="Post"], div[class*="post-item"], div[class*="Stream"] > div, div[class*="stream"] > div, section[class*="post"], article.message, .stream-item', title: '.Message_content, [class*="Message"] [class*="content"], [class*="Post"] [class*="content"], [class*="post"] [class*="content"], [class*="message"] [class*="body"], [class*="message"] [class*="text"], .content, p', views: '.views', likes: '.like-count, .like-btn span, button[aria-label*="like"] span, [class*="likes"] span, [class*="like"] span, [class*="icon-like"] + span, [class*="post"] [class*="actions"] [class*="like"] em, [class*="Post"] [class*="actions"] [class*="like"] em', comments: '.reply-count, button[aria-label*="reply"] span, [class*="comments"] span, [class*="comment"] span, [class*="icon-comment"] + span, [class*="post"] [class*="actions"] [class*="reply"] em, [class*="Post"] [class*="actions"] [class*="reply"] em', url: 'a[href*="messages/"], a[href*="/message/"], [class*="time"] a, a[href*="statuses"]', date: 'time, [class*="time"], [class*="date"]', cover: 'img' },
+      reddit: { list: 'div[data-testid="post-container"], .Post', title: 'h3', views: '[data-testid="vote-arrows"] + div', likes: '[data-testid="vote-arrows"]', comments: '[data-testid="comments-count"]', url: 'a[data-testid="comments-page-link"]', date: 'time', cover: 'img' },
+      zhihu: { list: '.ContentItem, .List-item, article', title: '.ContentItem-title, h2', views: '.ContentItem-meta .number + span', viewsRx: /阅读\s*([\d.]+万?)/i, likes: '.VoteButton--up .count', comments: '.ContentItem-actions .Button--plain', commentsRx: /评论\s*(\d+)/, url: 'a[href*="answer"], a[href*="p/"]', date: '.ContentItem-time', cover: 'img' },
+      instagram: { list: 'article a[href*="/p/"]', title: 'img[alt]', views: '', likes: '', comments: '', url: 'a[href]', date: 'time', cover: 'img, img[src*="cdninstagram"]' },
       tieba: { list: '.j_thread_list li, .threadlist_title', title: '.threadlist_title a', views: '.threadlist_rep_num', likes: '', comments: '.threadlist_rep_num', url: 'a[href]', date: '.threadlist_reply_date', cover: 'img' },
-      linkedin: { list: 'div[data-id], .occludable-update, section.feed-shared-update-v2', title: '.feed-shared-update-v2__description, .break-words', views: '.analytics-entry-point', likes: '.social-details-social-counts__reactions-count', comments: '.social-details-social-counts__comments', url: 'a[href*=posts]', date: 'time', cover: 'img' },
+      linkedin: { list: 'div[data-id], .occludable-update, section.feed-shared-update-v2', title: '.feed-shared-update-v2__description, .break-words', views: '.analytics-entry-point', likes: '.social-details-social-counts__reactions-count', comments: '.social-details-social-counts__comments', url: 'a[href*="posts"]', date: 'time', cover: 'img' },
     };
     const r = rules[platform.key] || null;
     if (!r) return out;
