@@ -762,7 +762,7 @@ function AdminUserManagementPage({ onBack, currentUser, showToast, initialTab, t
   return (
     <div className="min-h-screen w-full bg-ink-50/30">
       <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-black/[0.05]">
-        <div className="max-w-[1280px] mx-auto px-4 py-3 flex items-center gap-3">
+        <div className="max-w-[1480px] mx-auto px-4 py-3 flex items-center gap-3">
           <button onClick={onBack} className="h-9 px-2.5 rounded-lg hover:bg-black/[0.04] text-ink-600 flex items-center gap-1.5 text-[13px] font-semibold transition"><ArrowLeft size={15} />返回看板</button>
           <div className="h-6 w-px bg-black/[0.06]" />
           <div className="flex items-center gap-2">
@@ -784,7 +784,7 @@ function AdminUserManagementPage({ onBack, currentUser, showToast, initialTab, t
             ) : null
           )}
         </div>
-        <div className="max-w-[1280px] mx-auto px-4 pb-3 flex items-center gap-1.5">
+        <div className="max-w-[1480px] mx-auto px-4 pb-3 flex items-center gap-1.5">
           {[
             { id: 'users', label: '系统用户', icon: Users, color: 'indigo', badge: null },
             { id: 'tokens', label: '采集器授权', icon: KeyRound, color: 'indigo', badge: 'Token' },
@@ -808,7 +808,7 @@ function AdminUserManagementPage({ onBack, currentUser, showToast, initialTab, t
         </div>
       </div>
       {lastCreated?.generated_password && (
-        <div className="max-w-[1280px] mx-auto px-4 pt-3">
+        <div className="max-w-[1480px] mx-auto px-4 pt-3">
           <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 flex items-center gap-3">
             <div className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center bg-indigo-600">
               <UserCog size={16} className="text-white" />
@@ -828,7 +828,7 @@ function AdminUserManagementPage({ onBack, currentUser, showToast, initialTab, t
           </div>
         </div>
       )}
-      <div className="max-w-[1280px] mx-auto px-4 py-4">
+      <div className="max-w-[1480px] mx-auto px-4 py-4">
         {/* ================== 用户 Tab ================== */}
         {adminTab === 'users' && (
           <div className="bg-white rounded-2xl shadow-sm border border-black/[0.05] overflow-hidden">
@@ -3806,7 +3806,7 @@ function UserSwitcher({ value, users, onChange, currentUser, isAdmin, onGoAdmin,
                       onClick={() => { onGoAdmin?.(); setOpen(false); }}
                       className="w-full h-9 px-3 rounded-lg text-[12.5px] font-semibold text-ink-700 hover:bg-white hover:text-indigo-700 transition flex items-center gap-2"
                     >
-                      <Shield size={13} />用户与权限后台 <span className="text-rose-500 ml-auto text-[10px] font-bold">ADMIN</span>
+                      <Shield size={13} />用户与权限 · 账号体系 <span className="text-rose-500 ml-auto text-[10px] font-bold">ADMIN</span>
                     </button>
                   )}
                   {isAdmin && (
@@ -3978,7 +3978,7 @@ function TrafficPie({ data, activeName, setActiveName, onSelectPlatform, onNavig
               >
                 {data.map((entry, i) => {
                   const dim = !!activeName && activeName !== entry.name;
-                  return <Cell key={i} fill={entry.color} opacity={dim ? 0.35 : 1} style={{ transition: 'opacity 200ms ease', cursor: (onNavigatePlatform || onSelectPlatform) ? 'pointer' : 'default' }} />;
+                  return <Cell key={entry.key || entry.name || i} fill={entry.color} opacity={dim ? 0.35 : 1} style={{ transition: 'opacity 200ms ease', cursor: (onNavigatePlatform || onSelectPlatform) ? 'pointer' : 'default' }} />;
                 })}
               </Pie>
               <Tooltip formatter={v => formatShort(v)} contentStyle={{ borderRadius: 12, border: '1px solid rgba(0,0,0,0.06)', fontSize: 12, boxShadow: '0 12px 30px rgba(0,0,0,0.1)' }} />
@@ -3992,26 +3992,26 @@ function TrafficPie({ data, activeName, setActiveName, onSelectPlatform, onNavig
           </div>
         </div>
       </div>
-      <div className="flex flex-col gap-2.5 min-w-[160px] max-h-[240px] overflow-y-auto pr-1 -mr-1">
-        {data.slice().sort((a, b) => b.value - a.value).map(item => {
+      <div className="flex-1 grid grid-cols-2 gap-x-5 gap-y-2 min-w-[280px] content-start">
+        {data.slice().sort((a, b) => (b.value || 0) - (a.value || 0)).map(item => {
           const pct = total ? ((item.value / total) * 100).toFixed(1) : 0;
           const isActive = activeName === item.name;
           return (
             <motion.button
               type="button"
-              key={item.name}
+              key={item.key || item.name}
               whileHover={{ x: 2 }}
               onMouseEnter={() => setActiveName && setActiveName(item.name)}
               onMouseLeave={() => setActiveName && setActiveName(null)}
               onClick={() => handleClickPlatform(item.name)}
-              className={`flex items-center gap-3 rounded-lg px-2 -mx-2 py-1 transition text-left ${isActive ? 'bg-ink-50' : ''}`}
+              className={`flex items-center gap-3 rounded-lg px-2 -mx-1 py-1 transition text-left ${isActive ? 'bg-ink-50' : ''}`}
               style={{ cursor: (onNavigatePlatform || onSelectPlatform) ? 'pointer' : 'default' }}
             >
-              <PlatformLogo platformKeyOrName={item.name} size={14} style={{ opacity: activeName && !isActive ? 0.35 : 1 }} />
+              <PlatformLogo platformKeyOrName={item.key || item.name} size={14} style={{ opacity: activeName && !isActive ? 0.35 : 1 }} />
               <div className="flex-1 min-w-0">
                 <div className="text-[12.5px] font-medium text-ink-700 truncate">{item.name}</div>
               </div>
-              <div className="text-[12px] text-ink-500 tabular-nums">{pct}%</div>
+              <div className="text-[12px] text-ink-500 tabular-nums whitespace-nowrap">{pct}%</div>
             </motion.button>
           );
         })}
@@ -5977,7 +5977,7 @@ export default function App() {
       key: 'view', label: '视图与管理', icon: Shield, color: 'from-emerald-500 to-teal-500', dot: 'bg-emerald-500',
       items: [
         { id: 'cmd-home', action: 'home', title: '返回首页（总览）', desc: '回到矩阵数据总览首页视图', icon: LayoutGrid, kbd: '⌘↑', keywords: '首页 home 总览 overview 回去 返回 dashboard' },
-        { id: 'cmd-admin', action: 'admin', title: '用户与权限后台', desc: isAdmin ? '管理用户 / 邀请码 / 审计日志' : '无权限（当前非管理员）', icon: Shield, keywords: '后台 管理 admin 用户 权限 角色 role user invite 邀请码 audit' },
+        { id: 'cmd-admin', action: 'admin', title: '用户与权限 · 账号体系', desc: isAdmin ? '管理用户 / 采集器授权 Token / 审计日志' : '无权限（当前非管理员）', icon: Shield, keywords: '后台 管理 admin 用户 权限 角色 role user audit token' },
         { id: 'cmd-export-raw', action: 'rawcsv', title: '导出全量 CSV（后端原数据）', desc: '从后端 /api/v1/export/csv 拉取未经前端过滤的全量原始数据', icon: FileCode, keywords: '全量 raw 导出 csv 原始 data 后端 backend api' },
       ],
     });
@@ -7941,16 +7941,19 @@ export default function App() {
                       <div className="h-full flex items-center justify-center"><RefreshCw size={20} className="animate-spin text-ink-300" /></div>
                     ) : (() => {
                       const rawPie = scopeDerivedCharts ? scopeDerivedCharts.platformTraffic : (data?.platformTraffic || []);
-                      const platformList = Object.values(PLATFORM_META);
-                      const normalized = platformList.map(meta => {
-                        const hit = rawPie.find(p => (p.key && p.key === meta.key) || p.name === meta.name || (p.platform && p.platform === meta.key));
-                        return {
-                          key: meta.key,
-                          name: meta.name,
-                          value: hit?.value != null ? Number(hit.value) : 0,
-                          color: hit?.color || meta.color,
-                        };
-                      });
+                      const merged = {};
+                      for (const p of rawPie || []) {
+                        const pkey = p.key || p.platform;
+                        const key = pkey && PLATFORM_META[pkey] ? pkey : Object.keys(PLATFORM_META).find(k => PLATFORM_META[k].name === p.name);
+                        if (!key) continue;
+                        const meta = PLATFORM_META[key];
+                        if (!merged[key]) merged[key] = { key, name: meta.name, value: 0, color: meta.color };
+                        merged[key].value += Number(p.value || 0);
+                      }
+                      for (const meta of Object.values(PLATFORM_META)) {
+                        if (!merged[meta.key]) merged[meta.key] = { key: meta.key, name: meta.name, value: 0, color: meta.color };
+                      }
+                      const normalized = Object.values(merged).sort((a, b) => (b.value || 0) - (a.value || 0));
                       return <TrafficPie data={normalized} activeName={activePie} setActiveName={setActivePie} onNavigatePlatform={navigateToPlatform} />;
                     })()}
                   </div>

@@ -660,8 +660,18 @@
     const labels = (meta && meta.nativeNames) ? meta.nativeNames : ['粉丝', '粉丝数', '关注者', 'Followers', 'subscribers', 'members'];
     const v = _extractByLabelList(labels);
     if (v > 0) return v;
-    const m = (document.body ? document.body.innerText : '').match(/(粉丝|关注者|订阅者|followers|fans|subscribers|members|成员|Connections|Watchers)[^\d]{0,8}([\d,.]+)\s*(亿|万|k|m|b)?/i);
-    if (m) return toNum(m[2] + (m[3] || ''));
+    const full = (document.body ? document.body.innerText : '');
+    const labelsPat = (labels || []).map(l => typeof l === 'string' ? l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : (l instanceof RegExp ? l.source : l)).join('|');
+    if (labelsPat) {
+      // 顺序 B: 数值在前（分两支：带单位 2.5万 粉丝 / 无单位 152 关注）
+      //   分支1（带单位）: 数值 任意空白 单位 0-2空白 标签 → 匹配 "2.5万 粉丝"
+      //   分支2（无单位）: 数值 0-2空白 标签 → 匹配 "152 关注"，不匹配 "25000   关注"（3空格跨字段污染）
+      let m = full.match(new RegExp(`([\\d,.]+)(?:\\s*(亿|万|k|m|b)\\s{0,2}|\\s{0,2})(?:${labelsPat})`, 'i'));
+      if (m) return toNum(m[1] + (m[2] || ''));
+      // 顺序 A: 标签在前（粉丝 25000）兼容老页面
+      m = full.match(new RegExp(`(?:${labelsPat})[^\\d]{0,10}([\\d,.]+)\\s*(亿|万|k|m|b)?`, 'i'));
+      if (m) return toNum(m[1] + (m[2] || ''));
+    }
     return 0;
   }
 
@@ -670,15 +680,35 @@
     const labels = (meta && meta.nativeNames) ? meta.nativeNames : ['关注', 'Following', '关注中', '关注数', 'Watching'];
     const v = _extractByLabelList(labels);
     if (v > 0) return v;
-    const m = (document.body ? document.body.innerText : '').match(/(关注|Following|关注了|Joined)[^\d]{0,6}([\d,.]+)\s*(亿|万|k|m|b)?/i);
-    if (m) return toNum(m[2] + (m[3] || ''));
+    const full = (document.body ? document.body.innerText : '');
+    const labelsPat = (labels || []).map(l => typeof l === 'string' ? l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : (l instanceof RegExp ? l.source : l)).join('|');
+    if (labelsPat) {
+      // 顺序 B: 数值在前（分两支：带单位 / 无单位≤2空白 防止跨字段）
+      let m = full.match(new RegExp(`([\\d,.]+)(?:\\s*(亿|万|k|m|b)\\s{0,2}|\\s{0,2})(?:${labelsPat})`, 'i'));
+      if (m) return toNum(m[1] + (m[2] || ''));
+      // 顺序 A: 标签在前（关注 152）兼容
+      m = full.match(new RegExp(`(?:${labelsPat})[^\\d]{0,10}([\\d,.]+)\\s*(亿|万|k|m|b)?`, 'i'));
+      if (m) return toNum(m[1] + (m[2] || ''));
+    }
     return 0;
   }
 
   function extractLikesTotal(platform) {
     const meta = (FIELD_META_BY_PLATFORM[platform.key] || {}).likesTotal;
     const labels = (meta && meta.nativeNames) ? meta.nativeNames : ['获赞', '获赞与收藏', '转评赞', 'Likes', '点赞', '总获赞', 'Karma'];
-    return _extractByLabelList(labels);
+    const v1 = _extractByLabelList(labels);
+    if (v1 > 0) return v1;
+    const full = (document.body ? document.body.innerText : '');
+    const labelsPat = (labels || []).map(l => typeof l === 'string' ? l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : (l instanceof RegExp ? l.source : l)).join('|');
+    if (labelsPat) {
+      // 顺序 B: 数值在前（分两支：带单位 / 无单位≤2空白 防止跨字段）
+      let m = full.match(new RegExp(`([\\d,.]+)(?:\\s*(亿|万|k|m|b)\\s{0,2}|\\s{0,2})(?:${labelsPat})`, 'i'));
+      if (m) return toNum(m[1] + (m[2] || ''));
+      // 顺序 A: 标签在前（转评赞 12000）兼容
+      m = full.match(new RegExp(`(?:${labelsPat})[^\\d]{0,10}([\\d,.]+)\\s*(亿|万|k|m|b)?`, 'i'));
+      if (m) return toNum(m[1] + (m[2] || ''));
+    }
+    return 0;
   }
 
   function extractRawFieldsSnapshot(platform, { followers, following, likesTotal, postsCount, views, comments }) {
