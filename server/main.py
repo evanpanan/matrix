@@ -2646,17 +2646,23 @@ def api_admin_clear_data(body: AdminClearDataRequest, request: Request, user: Di
         raise HTTPException(400, "confirm_required")
     scope = (body.scope or "all").lower()
     with get_conn() as c:
-        if scope in {"all", "records", "monitoring"}:
-            c.execute("DELETE FROM records")
-            c.execute("DELETE FROM daily_snapshots")
-            c.execute("DELETE FROM accounts WHERE id NOT IN (SELECT account_id FROM accounts WHERE account_id='anchor_noop')")
+        deleted = {"records": 0, "daily_snapshots": 0, "accounts": 0}
+        if scope in {"all", "monitoring"}:
+            r1 = c.execute("DELETE FROM records")
+            r2 = c.execute("DELETE FROM daily_snapshots")
+            r3 = c.execute("DELETE FROM accounts")
+            deleted["records"] = getattr(r1, "rowcount", 0) or 0
+            deleted["daily_snapshots"] = getattr(r2, "rowcount", 0) or 0
+            deleted["accounts"] = getattr(r3, "rowcount", 0) or 0
         elif scope == "records":
-            c.execute("DELETE FROM records")
-            c.execute("DELETE FROM daily_snapshots")
+            r1 = c.execute("DELETE FROM records")
+            r2 = c.execute("DELETE FROM daily_snapshots")
+            deleted["records"] = getattr(r1, "rowcount", 0) or 0
+            deleted["daily_snapshots"] = getattr(r2, "rowcount", 0) or 0
         else:
             raise HTTPException(400, f"unknown_scope: {scope}")
-        write_audit(c, user["id"], "admin_clear_data", True, f"scope={scope}", ip, ua)
-    return {"ok": True, "scope": scope}
+        write_audit(c, user["id"], "admin_clear_data", True, f"scope={scope} deleted={deleted}", ip, ua)
+    return {"ok": True, "scope": scope, "deleted": deleted}
 
 
 @app.delete("/api/admin/accounts/{account_id}", tags=["admin"])

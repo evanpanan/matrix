@@ -762,7 +762,7 @@ function AdminUserManagementPage({ onBack, currentUser, showToast, initialTab, t
   return (
     <div className="min-h-screen w-full bg-ink-50/30">
       <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-black/[0.05]">
-        <div className="max-w-[1480px] mx-auto px-4 py-3 flex items-center gap-3">
+        <div className="max-w-[1620px] mx-auto px-4 py-3 flex items-center gap-3">
           <button onClick={onBack} className="h-9 px-2.5 rounded-lg hover:bg-black/[0.04] text-ink-600 flex items-center gap-1.5 text-[13px] font-semibold transition"><ArrowLeft size={15} />返回看板</button>
           <div className="h-6 w-px bg-black/[0.06]" />
           <div className="flex items-center gap-2">
@@ -784,7 +784,7 @@ function AdminUserManagementPage({ onBack, currentUser, showToast, initialTab, t
             ) : null
           )}
         </div>
-        <div className="max-w-[1480px] mx-auto px-4 pb-3 flex items-center gap-1.5">
+        <div className="max-w-[1620px] mx-auto px-4 pb-3 flex items-center gap-1.5">
           {[
             { id: 'users', label: '系统用户', icon: Users, color: 'indigo', badge: null },
             { id: 'tokens', label: '采集器授权', icon: KeyRound, color: 'indigo', badge: 'Token' },
@@ -808,7 +808,7 @@ function AdminUserManagementPage({ onBack, currentUser, showToast, initialTab, t
         </div>
       </div>
       {lastCreated?.generated_password && (
-        <div className="max-w-[1480px] mx-auto px-4 pt-3">
+        <div className="max-w-[1620px] mx-auto px-4 pt-3">
           <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 px-4 py-3 flex items-center gap-3">
             <div className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center bg-indigo-600">
               <UserCog size={16} className="text-white" />
@@ -828,7 +828,7 @@ function AdminUserManagementPage({ onBack, currentUser, showToast, initialTab, t
           </div>
         </div>
       )}
-      <div className="max-w-[1480px] mx-auto px-4 py-4">
+      <div className="max-w-[1620px] mx-auto px-4 py-4">
         {/* ================== 用户 Tab ================== */}
         {adminTab === 'users' && (
           <div className="bg-white rounded-2xl shadow-sm border border-black/[0.05] overflow-hidden">
@@ -5679,12 +5679,14 @@ export default function App() {
       const d = await fetchSummary(30, id);
       if (loadDataLockRef.current !== lock) return;
       setData(prev => {
-        if (prev && deepEqual(prev.latestRecords, d.latestRecords) && deepEqual(prev.trend, d.trend) && deepEqual(prev.summary, d.summary)) {
+        if (!force && prev && deepEqual(prev.latestRecords, d.latestRecords) && deepEqual(prev.trend, d.trend) && deepEqual(prev.summary, d.summary)) {
           return prev;
         }
         return d;
       });
-      if (Array.isArray(d.viralAlerts) && d.viralAlerts.length > 0) {
+      if (force) {
+        setViralHistory(d.viralAlerts?.length ? d.viralAlerts.slice(0, VIRAL_HISTORY_MAX) : []);
+      } else if (Array.isArray(d.viralAlerts) && d.viralAlerts.length > 0) {
         setViralHistory(prev => {
           if (prev && prev.length > 0) return prev;
           return d.viralAlerts.slice(0, VIRAL_HISTORY_MAX);
@@ -5726,7 +5728,32 @@ export default function App() {
     try {
       const r = await adminClearData('all');
       if (r && r.ok === false) throw new Error(r.detail || r.message || '清空失败');
-      showToast('全部监测数据已清空（重新采集将从零开始）', 'success');
+      const del = r?.deleted || {};
+      const acc = (typeof del === 'object') ? (Number(del.accounts) || 0) : 0;
+      const rec = (typeof del === 'object') ? (Number(del.records) || 0) : 0;
+      setLiveMode(false);
+      setFlashIds(new Set());
+      setData(prev => {
+        const base = prev && typeof prev === 'object' ? prev : {};
+        return {
+          ...base,
+          latestRecords: [],
+          trend: [],
+          summary: {
+            total_accounts: 0, total_followers: 0, total_members: 0, total_views: 0, total_engagement: 0,
+            trend_delta_followers: 0, trend_delta_engagement: 0, abnormal_count: 0, active_collectors: 0,
+            platform_breakdown: [], scope_breakdown: [], entity_breakdown: [], platform_traffic: [],
+            latest_platforms: [], latest_account_platforms: [], scope_derived: undefined,
+          },
+          platformTraffic: [],
+          latestStats: [],
+          viralAlerts: [],
+          heatmapData: undefined,
+        };
+      });
+      setViralHistory([]);
+      showToast(`全部监测数据已清空（账号 ${acc}，记录 ${rec}，重新采集从零开始）`, 'success');
+      await new Promise(res => setTimeout(res, 300));
       await loadData(currentUid, { force: true });
     } catch (e) { showToast(e.message || '清空失败，请稍后重试', 'error'); }
   }, [hasJwt, showToast, currentUid, loadData]);
