@@ -99,7 +99,16 @@
   function extractMonitorTargetKey(platform) {
     if (platform?.key === 'stocktwits') {
       const sym = symbolFromStocktwitsUrl();
-      return sym ? { entity_type: 'STOCK', key: sym } : null;
+      if (sym) return { entity_type: 'STOCK', key: sym };
+      const path = (location.pathname || '');
+      const m = path.match(/^\/([A-Za-z.]+)(\/|$|\?|#)/);
+      if (m && m[1]) {
+        const candidate = String(m[1]);
+        if (!/^(home|trending|watchlists|explore|login|signup|pricing|search|about|terms|privacy|streams|messages|symbol|premium|discover|$)/i.test(candidate)) {
+          return { entity_type: 'ACCOUNT', key: candidate };
+        }
+      }
+      return null;
     }
     if (platform?.key === 'reddit') {
       const sub = subredditFromRedditUrl();
@@ -374,8 +383,8 @@
         { sel: '[class*="CompanyLogo"] img, [class*=symbol-logo] img, [class*=stock-logo] img', attr: ['src','data-src'], all: true },
         { sel: '[aria-label*="logo" i] img, [role=img][aria-label*="logo" i]', attr: ['src','data-src'] },
         { sel: 'h1 ~ img, h1 + * img', attr: 'src' },
-        { sel: '.UserHeader__avatar img', attr: 'src' },
-        { sel: 'img[class*=Avatar i]', attr: ['src','data-src'], all: true },
+        { sel: '.UserHeader__avatar img, [class*=Header] img, header img, [class*=Profile] img, [class*=profile] img', attr: ['src','data-src'] },
+        { sel: 'img[class*=Avatar i], img[class*=avatar i]', attr: ['src','data-src'], all: true },
         { sel: 'img[src*="logo" i]', attr: 'src', all: true },
         { sel: 'link[rel*="icon" i]', attr: 'href' },
         { sel: 'meta[property="og:image"]', attr: 'content' },
@@ -544,7 +553,7 @@
       instagram: ['header h2', 'h1', '._aada'],
       telegram: ['.tgme_page_title', '.channel_header_title', 'h1'],
       discord: ['.name-2m3Cms', 'h1'],
-      stocktwits: ['.with-header-user-name', '.UserHeader__username', 'h1'],
+      stocktwits: ['.with-header-user-name', '.UserHeader__username', '[class*=username]', '[class*=screen-name]', '[class*=Header] [class*=name]', '[class*=UserHeader] h2', '[class*=UserHeader] h1', 'header h2', 'header h1', 'h1'],
       reddit: ['[data-testid=top-bar-title]', 'h1', '.subredditname'],
       seekingalpha: ['.profile-name', '.author-name', 'h1'],
       tieba: ['.card_head_title', '.tbui_title_wrap h1', 'h1'],
@@ -558,9 +567,20 @@
           if (platform.key === 'xiaohongshu') {
             if (/^(关注|粉丝|获赞|收藏|小红书号|天蝎|广东)/.test(t)) continue;
           }
+          if (platform.key === 'stocktwits') {
+            if (/^(Posts|Posts & Replies|Liked|Watchlist|Strategy|Joined|Following|Followers|Edit Profile|Messages)$/i.test(t)) continue;
+          }
           return t;
         }
       }
+    }
+    if (platform.key === 'stocktwits') {
+      try {
+        const m = (location.pathname || '').match(/^\/([A-Za-z.]+)(\/|$|\?|#)/);
+        if (m && m[1] && !/^(home|trending|watchlists|explore|login|signup|pricing|search|about|terms|privacy|streams|messages|symbol|premium|discover|$)/i.test(m[1])) {
+          return m[1];
+        }
+      } catch {}
     }
     return fallback;
   }
@@ -679,7 +699,7 @@
       posts:          { nativeNames: ['讨论', '长文', '帖子'], unified: '讨论/长文' },
       views:          { nativeNames: ['阅读', '浏览', '阅读量'], unified: '阅读' },
     },
-    stocktwits:    { followers:{nativeNames:['Watchers','关注者'],unified:'关注者'}, following:{nativeNames:['Watching','关注'],unified:'关注列表'}, posts:{nativeNames:['Messages','帖子'],unified:'帖子'}, likesTotal:{nativeNames:['Likes','点赞'],unified:'获赞'} },
+    stocktwits:    { followers:{nativeNames:['Followers','Watchers','粉丝','关注者'],unified:'关注者'}, following:{nativeNames:['Following','Watching','关注','关注列表'],unified:'关注列表'}, posts:{nativeNames:['Posts','Messages','帖子'],unified:'帖子'}, likesTotal:{nativeNames:['Likes','点赞','获赞'],unified:'获赞'} },
     reddit:        { followers:{nativeNames:['members','subscribers','成员'],unified:'成员'}, following:{nativeNames:['Joined','订阅'],unified:'订阅'}, posts:{nativeNames:['Posts','帖子'],unified:'帖子'}, likesTotal:{nativeNames:['Karma','积分','点赞'],unified:'积分/点赞'} },
     linkedin:      { followers:{nativeNames:['connections','关注者','粉丝'],unified:'人脉'}, following:{nativeNames:['Following','关注'],unified:'关注'}, posts:{nativeNames:['Posts','动态'],unified:'动态'}, likesTotal:{nativeNames:['Likes','点赞'],unified:'获赞'} },
   };
@@ -787,7 +807,7 @@
       xueqiu: { list: '.status-list .status, article, .AnonymousHome_home__timeline-item', title: '.status-title, .status-content', views: '.status-source, .retweet', likes: '.iconfont.icon-like + span, .like-count', comments: '.reply-count, .iconfont.icon-comment + span', url: 'a[href^=/status/]', date: '.status-source a, time', cover: 'img' },
       futu: { list: '.momo-post, .article-item, .feed-item', title: '.title, .content', views: '.read-count, .view-count', likes: '.like-count, .digg-count', comments: '.comment-count', url: 'a[href]', date: '.time', cover: 'img' },
       youtube: { list: '#contents ytd-grid-video-renderer, ytd-rich-grid-media', title: '#video-title yt-formatted-string', views: '#metadata-line yt-formatted-string:nth-child(1)', likes: '', comments: '', url: '#video-title', date: '#metadata-line yt-formatted-string:nth-child(2)', cover: 'ytd-thumbnail img, #thumbnail img, img' },
-      stocktwits: { list: 'article.message, .stream-item', title: '.Message_content', views: '.views', likes: '.like-count, .like-btn span', comments: '.reply-count', url: 'a[href*=messages/]', date: 'time', cover: 'img' },
+      stocktwits: { list: 'article, div[class*=Message], div[class*=message-item], div[class*=Post], div[class*=post-item], div[class*=Stream] > div, div[class*=stream] > div, section[class*=post], article.message, .stream-item', title: '.Message_content, [class*=Message] [class*=content], [class*=Post] [class*=content], [class*=post] [class*=content], [class*=message] [class*=body], [class*=message] [class*=text], .content, p', views: '.views', likes: '.like-count, .like-btn span, button[aria-label*=like] span, [class*=likes] span, [class*=like] span, [class*=icon-like] + span, [class*=post] [class*=actions] [class*=like] em, [class*=Post] [class*=actions] [class*=like] em', comments: '.reply-count, button[aria-label*=reply] span, [class*=comments] span, [class*=comment] span, [class*=icon-comment] + span, [class*=post] [class*=actions] [class*=reply] em, [class*=Post] [class*=actions] [class*=reply] em', url: 'a[href*=messages/], a[href*=/message/], [class*=time] a, a[href*=statuses]', date: 'time, [class*=time], [class*=date]', cover: 'img' },
       reddit: { list: 'div[data-testid=post-container], .Post', title: 'h3', views: '[data-testid=vote-arrows] + div', likes: '[data-testid=vote-arrows]', comments: '[data-testid=comments-count]', url: 'a[data-testid=comments-page-link]', date: 'time', cover: 'img' },
       zhihu: { list: '.ContentItem, .List-item, article', title: '.ContentItem-title, h2', views: '.ContentItem-meta .number + span', viewsRx: /阅读\s*([\d.]+万?)/i, likes: '.VoteButton--up .count', comments: '.ContentItem-actions .Button--plain', commentsRx: /评论\s*(\d+)/, url: 'a[href*=answer], a[href*=p/]', date: '.ContentItem-time', cover: 'img' },
       instagram: { list: 'article a[href*=/p/]', title: 'img[alt]', views: '', likes: '', comments: '', url: 'a[href]', date: 'time', cover: 'img, img[src*=cdninstagram]' },
@@ -1029,12 +1049,13 @@
   function extractEntity(platform) {
     const path = location.pathname;
     const account = extractAccountName(platform);
-    const communityPlatforms = { stocktwits: true, reddit: true, tieba: true, discord: true, telegram: true };
-    const entityType = communityPlatforms[platform.key] ? 'COMMUNITY' : 'ACCOUNT';
+    const communityPlatforms = { reddit: true, tieba: true, discord: true, telegram: true };
+    let entityType = communityPlatforms[platform.key] ? 'COMMUNITY' : 'ACCOUNT';
     const extra = {};
     if (platform.key === 'stocktwits') {
       const m = path.match(/symbol\/([A-Za-z.]+)/i);
-      if (m) extra.symbol = m[1].toUpperCase();
+      if (m) { extra.symbol = m[1].toUpperCase(); entityType = 'COMMUNITY'; }
+      else entityType = 'ACCOUNT';
     }
     if (platform.key === 'reddit') {
       const m = path.match(/r\/([A-Za-z0-9_]+)/i);
