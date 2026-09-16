@@ -39,7 +39,7 @@
   ];
 
   const PROFILE_URL_PATTERNS = {
-    xiaohongshu:   { allow: [/^\/user\/profile\/[A-Za-z0-9_]+/i, /^\/discovery\/item\//i], deny: [/^\/(explore|search|$|home|index|shop|chat\/|result)/i], hint: '请打开某个人主页（URL 包含 /user/profile/xxx），不是发现/搜索/首页/活动' },
+    xiaohongshu:   { allow: [/^\/user\/profile\/[A-Za-z0-9_]+/i], deny: [/^\/(explore|discovery|search|$|home|index|shop|chat\/|result|item)/i], hint: '请打开某个人主页（URL 必须包含 /user/profile/xxx），不是笔记/发现/搜索/首页/活动' },
     douyin:        { allow: [/^\/user\/\w+/i, /^\/@[^/?#]+/i, /^\/video\/\w+/i], deny: [/^\/($|explore|search|jingxuan|recommend|discover|follow|hot)/i], hint: '请打开创作者个人主页（/user/xxx 或 @昵称）或具体视频页，不是精选/推荐/首页/搜索' },
     wechat:        { allow: [/^\/s\//i, /^\/mp\/profile_ext/i, /^\/cgi-bin\/home\?t=home\/index/i, /^\/\?action=home/i], deny: [/^\/cgi-bin\/(?!home|masssendpage|masssend)/i, /^\/mp\/appmsg\/template/i], hint: '请打开某一篇公众号文章页（URL 含 /s/）或该公众号的「全部文章」列表页，不是后台「首页」那种纯操作台' },
     x:             { allow: [/^\/[A-Za-z0-9_]{1,15}(\/|$|\?|#)/i, /^\/i\/communities\//i], deny: [/^\/($|home|explore|search|notifications|messages|compose\/post|i\/flow|settings|tos|privacy|signup|login)/i, /^\/hashtag\//i, /^\/search-advanced/i], hint: '请打开某个用户主页（x.com/用户名）或一条具体推文页，不是首页/探索/搜索/话题' },
@@ -349,11 +349,11 @@
         { sel: 'meta[property="og:image"]', attr: 'content' },
       ],
       weibo: [
-        { sel: '.W_fl img', attr: 'src' },
-        { sel: '.photo_wrap img', attr: 'src' },
-        { sel: '.avatar img', attr: 'src' },
-        { sel: 'img[class*=avatar i]', attr: ['src','data-src'], all: true },
-        { sel: 'meta[property="og:image"]', attr: 'content' },
+        { sel: '.ProfileHeader_avatarWrap img, .ProfileAvatar_image img, .woo-avatar-img, img[class*=ProfileAvatar]', attr: ['src','data-src','data-original','srcset'] },
+        { sel: '.W_fl img, .photo_wrap img, .avatar img, img[class*=avatar i]', attr: ['src','data-src','data-original'], all: true },
+        { sel: 'img[src*="h5.sinaimg.cn/u"]', attr: ['src','data-src'], all: true },
+        { sel: 'img[src*="avatar"]', attr: ['src','data-src','data-original'], all: true },
+        { sel: 'header img, [class*=header] img:first-of-type', attr: ['src','data-src','data-original'], all: true },
       ],
       bilibili: [
         { sel: '.h-avatar', attr: ['src','data-src'] },

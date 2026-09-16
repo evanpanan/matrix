@@ -3965,13 +3965,13 @@ function TrafficPie({ data, activeName, setActiveName, onSelectPlatform, onNavig
     else if (onSelectPlatform) onSelectPlatform(name);
   };
   return (
-    <div className="h-full flex items-center justify-center gap-6 px-2">
+    <div className="h-full flex items-center justify-center gap-4 px-1">
       <div className="relative shrink-0">
-        <div style={{ width: 220, height: 220 }}>
+        <div style={{ width: 180, height: 180 }}>
           <ResponsiveContainer width="100%" height="100%">
             <PieChart onMouseLeave={() => setActiveName && setActiveName(null)}>
               <Pie
-                data={data} cx="50%" cy="50%" innerRadius={70} outerRadius={96} paddingAngle={3} dataKey="value" strokeWidth={0}
+                data={data} cx="50%" cy="50%" innerRadius={56} outerRadius={80} paddingAngle={3} dataKey="value" strokeWidth={0}
                 onMouseEnter={(d) => setActiveName && setActiveName(d.name)}
                 onClick={(d) => handleClickPlatform(d.name)}
                 style={{ cursor: (onNavigatePlatform || onSelectPlatform) ? 'pointer' : 'default' }}
@@ -3986,13 +3986,13 @@ function TrafficPie({ data, activeName, setActiveName, onSelectPlatform, onNavig
           </ResponsiveContainer>
         </div>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          <div className="text-[11px] text-ink-400 font-medium">总曝光</div>
-          <div className="text-xl font-semibold tracking-tight mt-0.5 text-ink-900 tabular-nums">
+          <div className="text-[10.5px] text-ink-400 font-medium">总曝光</div>
+          <div className="text-[17px] font-semibold tracking-tight mt-0.5 text-ink-900 tabular-nums">
             <AnimatedNumber value={total} format={v => formatShort(Math.round(v))} />
           </div>
         </div>
       </div>
-      <div className="flex-1 grid grid-cols-2 gap-x-5 gap-y-2 min-w-[280px] content-start">
+      <div className="flex-1 grid grid-cols-2 gap-x-4 gap-y-1 min-w-[260px] content-start overflow-hidden">
         {data.slice().sort((a, b) => (b.value || 0) - (a.value || 0)).map(item => {
           const pct = total ? ((item.value / total) * 100).toFixed(1) : 0;
           const isActive = activeName === item.name;
@@ -4004,14 +4004,14 @@ function TrafficPie({ data, activeName, setActiveName, onSelectPlatform, onNavig
               onMouseEnter={() => setActiveName && setActiveName(item.name)}
               onMouseLeave={() => setActiveName && setActiveName(null)}
               onClick={() => handleClickPlatform(item.name)}
-              className={`flex items-center gap-3 rounded-lg px-2 -mx-1 py-1 transition text-left ${isActive ? 'bg-ink-50' : ''}`}
+              className={`flex items-center gap-2 rounded-md px-1.5 -mx-0.5 py-[3px] transition text-left ${isActive ? 'bg-ink-50' : ''}`}
               style={{ cursor: (onNavigatePlatform || onSelectPlatform) ? 'pointer' : 'default' }}
             >
-              <PlatformLogo platformKeyOrName={item.key || item.name} size={14} style={{ opacity: activeName && !isActive ? 0.35 : 1 }} />
+              <PlatformLogo platformKeyOrName={item.key || item.name} size={12} style={{ opacity: activeName && !isActive ? 0.35 : 1 }} />
               <div className="flex-1 min-w-0">
-                <div className="text-[12.5px] font-medium text-ink-700 truncate">{item.name}</div>
+                <div className="text-[11.5px] font-medium text-ink-700 truncate">{item.name}</div>
               </div>
-              <div className="text-[12px] text-ink-500 tabular-nums whitespace-nowrap">{pct}%</div>
+              <div className="text-[11px] text-ink-500 tabular-nums whitespace-nowrap">{pct}%</div>
             </motion.button>
           );
         })}
@@ -7936,7 +7936,7 @@ export default function App() {
                       <p className="text-[11.5px] sm:text-[12px] text-ink-500 mt-0.5 truncate">按最新曝光量累计 · 点击扇区或图例进入平台看板</p>
                     </div>
                   </div>
-                  <div className="h-[280px] sm:h-[320px]">
+                  <div className="h-[290px] sm:h-[340px]">
                     {loading && !data ? (
                       <div className="h-full flex items-center justify-center"><RefreshCw size={20} className="animate-spin text-ink-300" /></div>
                     ) : (() => {
