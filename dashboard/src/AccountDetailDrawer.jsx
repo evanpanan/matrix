@@ -11,10 +11,15 @@ import {
   Eye, Heart, MessageCircle, Repeat2, Activity,
 } from 'lucide-react';
 
-import { PLATFORM_META, sanitizeUrl } from './lib/api.js';
+import { PLATFORM_META, PLATFORM_LOGOS, sanitizeUrl } from './lib/api.js';
 
 dayjs.extend(relativeTime);
 dayjs.locale('zh-cn');
+
+const AVATAR_POOL = [
+  "#6366f1,#8b5cf6", "#0ea5e9,#22d3ee", "#f59e0b,#ef4444", "#10b981,#14b8a6",
+  "#ec4899,#f43f5e", "#4263EB,#3b82f6", "#FF4500,#f59e0b",
+];
 
 const FADE_UP = {
   hidden: { opacity: 0, y: 12 },
@@ -34,19 +39,44 @@ function timeFromNow(iso) {
   return dayjs(iso).fromNow();
 }
 
-function Avatar({ gradient, name, size = 40 }) {
-  const [a, b] = (gradient || '#6366f1,#8b5cf6').split(',');
-  return (
-    <div
-      className="rounded-2xl flex items-center justify-center text-white text-sm font-semibold shadow-inner shrink-0"
-      style={{
-        width: size, height: size, fontSize: size * 0.36,
-        background: `linear-gradient(135deg, ${a}, ${b})`, letterSpacing: '0.02em',
-      }}
-    >
-      {name ? name.slice(0, 1) : '?'}
-    </div>
-  );
+function Avatar({ gradient, name, size = 40, src, dataUrl, platformKey, platformName }) {
+  const imageUrl = dataUrl || src;
+  const [failed, setFailed] = useState(false);
+  const fallback = () => {
+    const pm = PLATFORM_META[platformKey] || Object.values(PLATFORM_META).find(m => m.key === platformKey || m.name === (platformKey || platformName));
+    const color = pm?.color || '#6366f1';
+    const logoSvg = PLATFORM_LOGOS?.[pm?.key] || pm?.logo_svg || null;
+    const [a, b] = (gradient || (pm ? (color + ',' + '#6366f1') : '#6366f1,#8b5cf6')).split(',');
+    return (
+      <div
+        className="rounded-2xl flex items-center justify-center text-white text-sm font-semibold shadow-inner shrink-0"
+        style={{
+          width: size, height: size, fontSize: size * 0.36,
+          background: (logoSvg ? color : `linear-gradient(135deg, ${a}, ${b})`), letterSpacing: '0.02em',
+        }}
+      >
+        {logoSvg ? (
+          <span style={{ color: '#ffffff', width: Math.round(size * 0.56), height: Math.round(size * 0.56), display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} dangerouslySetInnerHTML={{ __html: logoSvg }} />
+        ) : (name ? name.slice(0, 1) : '?')}
+      </div>
+    );
+  };
+  if (imageUrl && !failed) {
+    return (
+      <img
+        src={imageUrl}
+        alt={name || ''}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        crossOrigin="anonymous"
+        onError={(e) => { setFailed(true); try { e.currentTarget.style.display = 'none'; } catch {} }}
+        className="rounded-2xl object-cover shrink-0 shadow-inner"
+        style={{ width: size, height: size, background: '#f4f4f5' }}
+        key={`${imageUrl}|${failed}`}
+      />
+    );
+  }
+  return fallback();
 }
 
 function UserAvatar({ name, size = 36 }) {

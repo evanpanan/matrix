@@ -7,7 +7,7 @@ import {
   Clock, Heart, MessageCircle, Repeat2, Flame, TrendingUp,
 } from 'lucide-react';
 
-import { PLATFORM_META, sanitizeUrl } from './lib/api.js';
+import { PLATFORM_META, PLATFORM_LOGOS, sanitizeUrl } from './lib/api.js';
 
 dayjs.extend(relativeTime);
 
@@ -36,19 +36,41 @@ function PlatformTag({ name, size = 'md' }) {
   );
 }
 
-function Avatar({ gradient, name, size = 40 }) {
-  const [a, b] = (gradient || '#6366f1,#8b5cf6').split(',');
-  return (
-    <div
-      className="rounded-2xl flex items-center justify-center text-white text-sm font-semibold shadow-inner shrink-0"
-      style={{
-        width: size, height: size, fontSize: size * 0.36,
-        background: `linear-gradient(135deg, ${a}, ${b})`, letterSpacing: '0.02em',
-      }}
-    >
-      {name ? name.slice(0, 1) : '?'}
-    </div>
-  );
+function Avatar({ gradient, name, size = 40, src, dataUrl, platformKey, platformName }) {
+  const [failed, setFailed] = useState(false);
+  const imageUrl = dataUrl || src || null;
+  const fallback = () => {
+    const pm = PLATFORM_META[platformKey] || Object.values(PLATFORM_META).find(m => m.key === platformKey || m.name === (platformKey || platformName));
+    const color = pm?.color || '#6366f1';
+    const logoSvg = PLATFORM_LOGOS?.[pm?.key] || pm?.logo_svg || null;
+    const [a, b] = (gradient || (pm ? (color + ',' + '#6366f1') : '#6366f1,#8b5cf6')).split(',');
+    return (
+      <div
+        className="rounded-2xl flex items-center justify-center text-white font-semibold shadow-inner shrink-0"
+        style={{
+          width: size, height: size, fontSize: size * 0.36,
+          background: (logoSvg ? color : `linear-gradient(135deg, ${a}, ${b})`),
+          letterSpacing: '0.02em',
+        }}
+      >
+        {logoSvg ? (
+          <span style={{ color: '#ffffff', width: Math.round(size * 0.56), height: Math.round(size * 0.56), display: 'inline-flex' }} dangerouslySetInnerHTML={{ __html: logoSvg }} />
+        ) : (name ? name.slice(0, 1) : '?')}
+      </div>
+    );
+  };
+  if (imageUrl && !failed) {
+    return (
+      <img
+        src={imageUrl}
+        alt={name || ''}
+        onError={(e) => { setFailed(true); try { e.target.onerror = null; } catch {} }}
+        className="rounded-2xl object-cover shrink-0 shadow-inner"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
+  return fallback();
 }
 
 function AnimatedNumber({ value, format = v => v, duration = 0.9 }) {
@@ -229,7 +251,7 @@ export default function PlatformDetailModal({ platformName, records, onClose }) 
                         transition={{ delay: i * 0.04 }}
                         className="flex items-center gap-2.5 sm:gap-3 p-2 sm:p-2.5 rounded-xl hover:bg-ink-50/60 transition min-w-0"
                       >
-                        <Avatar gradient={c.avatar_gradient} name={c.account} size={34} />
+                        <Avatar gradient={c.avatar_gradient} name={c.account} size={34} src={c.avatar_url} dataUrl={c.avatar_data_url} platformKey={c.platform_key} platformName={c.platform} />
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between gap-2 sm:gap-3 mb-1.5">
                             <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">

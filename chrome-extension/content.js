@@ -358,8 +358,8 @@
         { sel: 'meta[property="og:image"]', attr: 'content' },
       ],
       weibo: [
-        { sel: '.ProfileHeader_avatarWrap img, .ProfileAvatar_image img, .woo-avatar-img, img[class*="ProfileAvatar"], [class*="Profile"] [class*="Avatar"] img, [class*="Header"] [class*="Avatar"] img, [class*="UserAvatar"] img, [class*="userInfo"] img, [class*="user-info"] img, [class*="user_avatar"] img', attr: ['src','data-src','data-original','srcset'] },
-        { sel: '[class*="Cover"] + * img, [class*="Cover"] ~ div img, [class*="Banner"] + div img, header [class*="avatarWrap"] img, [class*="AvatarWrap"] img, [class*="avatar_wrap"] img', attr: ['src','data-src','data-original','srcset'] },
+        { sel: '[class*="Cover"] ~ div img, [class*="Cover"] + * img, [class*="Banner"] + * img, [class*="coverImg"] ~ div img, [class*="main-banner"] + div img, [class*="cover"] + * ~ div img, nav[class*="Back"] ~ div img, [class*="nav"] [class*="back"] ~ div img, [class*="page-header"] [class*="avatar"] img', attr: ['src','data-src','data-original','srcset'] },
+        { sel: '.ProfileHeader_avatarWrap img, .ProfileAvatar_image img, .woo-avatar-img, img[class*="ProfileAvatar"], [class*="Profile"] [class*="Avatar"] img, [class*="Header"] [class*="Avatar"] img, [class*="UserAvatar"] img, [class*="userInfo"] img, [class*="user-info"] img, [class*="user_avatar"] img, header [class*="avatarWrap"] img, [class*="AvatarWrap"] img, [class*="avatar_wrap"] img', attr: ['src','data-src','data-original','srcset'] },
         { sel: 'img[src*="sinaimg.cn"][src*="/crop/"], img[src*="sinaimg.cn"][src*="/avatar/"], img[src*="sinaimg.cn"][src*="/large/"], img[src*="sinaimg.cn"][src*="/orj360/"], img[src*="sinaimg.cn"][src*="/mw1024/"]', attr: ['src','data-src','data-original'], all: true },
         { sel: '[class*="Verify"] ~ img, [class*="VIP"] ~ img, [class*="Vip"] ~ img, [class*="verified"] ~ img, [class*="Verify"] + img, [class*="VIP"] + img, [class*="icon-v"] + img', attr: ['src','data-src','data-original'] },
         { sel: '.W_fl img, .photo_wrap img, .avatar img, img[class*="avatar" i]', attr: ['src','data-src','data-original'], all: true },
@@ -467,26 +467,43 @@
       try {
         const rectOf = (el) => { try { return el.getBoundingClientRect(); } catch { return { top: 0, left: 0, width: 0, height: 0 }; } };
         const allImgs = Array.from(document.querySelectorAll('img'));
+        const headerLeftBottom = (() => { try { const n = document.querySelector('[class*="Cover"]') || document.querySelector('[class*="coverImg"]') || document.querySelector('[class*="Banner"]') || document.querySelector('[class*="banner"]') || document.querySelector('[class*="cover"]') || document.querySelector('header'); const r = rectOf(n || document.body); return { x: r.left + 24, y: r.bottom, maxY: r.bottom + 220, minX: r.left, maxX: r.left + 380 }; } catch { return null; } })();
+        const inCorner = headerLeftBottom ? (rect) => {
+          const cx = rect.left + (rect.width / 2);
+          const cy = rect.top + (rect.height / 2);
+          return cx >= (headerLeftBottom.minX - 30) && cx <= headerLeftBottom.maxX && cy >= headerLeftBottom.y - 90 && cy <= headerLeftBottom.maxY;
+        } : () => false;
         const scored = allImgs.map((el, idx) => {
           const s = _srcOf(el, 'src') || _srcOf(el, 'data-src') || _srcOf(el, 'data-original') || _srcOf(el, 'srcset');
           if (!s) return null;
           const w = Math.max((el.naturalWidth || 0), (el.width || 0));
           const h = Math.max((el.naturalHeight || 0), (el.height || 0));
-          if (w < 60 || h < 60) return null;
-          if (w > 1500 || h > 1500) return null;
+          if (w < 28 || h < 28) return null;
+          if (w > 1800 || h > 1800) return null;
           const ratio = w && h ? (w > h ? w / h : h / w) : 99;
-          if (ratio > 1.35) return null;
+          if (ratio > 1.7) return null;
           const srcStr = String(s).toLowerCase();
-          if (!/sinaimg\.cn/i.test(srcStr)) return null;
           const rect = rectOf(el);
           const y = (rect.top || 0) + window.scrollY;
-          if (y > 900) return null;
+          if (y > 2000) return null;
           const area = w * h;
           let bonus = 0;
-          if (/(avatar|头像|profile|user|用户)/i.test([el.id || '', typeof el.className === 'string' ? el.className : '', el.alt || ''].join(' '))) bonus += 15;
-          if (/(crop|avatar|large|orj360|mw1024)/i.test(srcStr)) bonus += 12;
-          if (y < 500) bonus += 8;
-          return { s, score: bonus + Math.log10(1 + area) * 2 - ratio * 2, y, area };
+          const cornerHit = headerLeftBottom && inCorner(rect);
+          if (cornerHit) bonus += 40;
+          const blob = [el.id || '', typeof el.className === 'string' ? el.className : '', el.alt || ''].join(' ');
+          if (/(avatar|头像|profile|user|用户|avatar_img|Pan|潘海祥|Avatar|userImg|user_photo)/i.test(blob)) bonus += 22;
+          if (/(crop|avatar|large|orj360|mw1024|/face/|/face_|/profile/)/i.test(srcStr)) bonus += 18;
+          if (/sinaimg\.cn/i.test(srcStr)) bonus += 6;
+          if (y < 800) bonus += 10;
+          const parentChain = [el.parentElement, el.parentElement && el.parentElement.parentElement].filter(Boolean).map(n => `${n.className || ''} ${n.id || ''}`).join(' ');
+          if (/(avatar|avatar_wrap|AvatarWrap|ProfileAvatar|UserAvatar|user-avatar|avatarWrap|Photo|photo|UserInfo|userInfo)/i.test(parentChain)) bonus += 12;
+          if (rect.width >= 96 && rect.height >= 96) bonus += 6;
+          const style = (typeof getComputedStyle === 'function' && el) ? getComputedStyle(el) : null;
+          const radius = style ? parseInt((style.borderRadius || '').replace(/[^0-9.px]/g, '')) || 0 : 0;
+          if (radius >= 20 || /50%/.test((el.style || {}).borderRadius || '')) bonus += 10;
+          const minDim = Math.min(rect.width, rect.height) || Math.min(w, h);
+          if (minDim >= 72 && minDim <= 320) bonus += 6;
+          return { s, score: bonus + Math.log10(1 + area) * 1.3 - ratio * 1.8, y, area, w, h };
         }).filter(Boolean).sort((a, b) => b.score - a.score);
         for (const c of (scored || []).slice(0, 3)) {
           const fr = _fix(c.s);
@@ -1146,8 +1163,11 @@
           const posts = extractPosts(platform);
           const latest_post = posts[0] || null;
           const postsViewsSum = posts.reduce((s, p) => s + (p.views || 0), 0);
-          const accountViews = extractViewsAccount(platform);
-          const views = Math.max(postsViewsSum, accountViews);
+          let views = postsViewsSum;
+          if (platform.key !== 'weibo') {
+            const accountViews = extractViewsAccount(platform);
+            views = Math.max(views, accountViews);
+          }
           const postLikesSum = posts.reduce((s, p) => s + (p.likes || 0), 0);
           const comments = posts.reduce((s, p) => s + (p.comments || 0), 0);
           const likes = likesTotal > 0 ? likesTotal : postLikesSum;

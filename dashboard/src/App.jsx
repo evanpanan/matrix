@@ -338,7 +338,8 @@ function RegisterPage({ onRegisterOk, onGoLogin, showToast: externalToast }) {
 
 function UserAvatar({ name, size = 32, gradient, src, dataUrl }) {
   const imageUrl = dataUrl || src;
-  if (imageUrl) {
+  const [failed, setFailed] = useState(false);
+  if (imageUrl && !failed) {
     return (
       <img
         src={imageUrl}
@@ -346,9 +347,10 @@ function UserAvatar({ name, size = 32, gradient, src, dataUrl }) {
         loading="lazy"
         referrerPolicy="no-referrer"
         crossOrigin="anonymous"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+        onError={(e) => { setFailed(true); try { e.currentTarget.style.display = 'none'; } catch {} }}
         style={{ width: size, height: size, background: '#f4f4f5' }}
         className={`shrink-0 rounded-xl object-cover`}
+        key={`${imageUrl}|${failed}`}
       />
     );
   }
@@ -2137,9 +2139,30 @@ let PlatformTag = function PlatformTag({ name, size = 'md' }) {
 };
 PlatformTag = React.memo(PlatformTag);
 
-let Avatar = function Avatar({ gradient, name, size = 40, src, dataUrl }) {
+let Avatar = function Avatar({ gradient, name, size = 40, src, dataUrl, platformKey, platformName }) {
   const imageUrl = dataUrl || src;
-  if (imageUrl) {
+  const [failed, setFailed] = useState(false);
+  const fallback = () => {
+    const pm = PLATFORM_META[platformKey] || Object.values(PLATFORM_META).find(m => m.key === platformKey || m.name === (platformKey || platformName));
+    const color = pm?.color || '#6366f1';
+    const logoSvg = PLATFORM_LOGOS?.[pm?.key] || pm?.logo_svg || null;
+    const [a, b] = (gradient || (pm ? (color + ',' + '#6366f1') : '#6366f1,#8b5cf6')).split(',');
+    return (
+      <div
+        className="rounded-2xl flex items-center justify-center text-white text-sm font-semibold shadow-inner shrink-0"
+        style={{
+          width: size, height: size, fontSize: size * 0.36,
+          background: (logoSvg ? color : `linear-gradient(135deg, ${a}, ${b})`), letterSpacing: '0.02em',
+          color: '#ffffff',
+        }}
+      >
+        {logoSvg ? (
+          <span style={{ color: '#ffffff', width: Math.round(size * 0.56), height: Math.round(size * 0.56), display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} dangerouslySetInnerHTML={{ __html: logoSvg }} />
+        ) : (name ? name.slice(0, 1) : '?')}
+      </div>
+    );
+  };
+  if (imageUrl && !failed) {
     return (
       <img
         src={imageUrl}
@@ -2147,24 +2170,14 @@ let Avatar = function Avatar({ gradient, name, size = 40, src, dataUrl }) {
         loading="lazy"
         referrerPolicy="no-referrer"
         crossOrigin="anonymous"
-        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+        onError={(e) => { setFailed(true); try { e.currentTarget.style.display = 'none'; } catch {} }}
         className="rounded-2xl object-cover shrink-0 shadow-inner"
         style={{ width: size, height: size, background: '#f4f4f5' }}
+        key={`${imageUrl}|${failed}`}
       />
     );
   }
-  const [a, b] = (gradient || '#6366f1,#8b5cf6').split(',');
-  return (
-    <div
-      className="rounded-2xl flex items-center justify-center text-white text-sm font-semibold shadow-inner shrink-0"
-      style={{
-        width: size, height: size, fontSize: size * 0.36,
-        background: `linear-gradient(135deg, ${a}, ${b})`, letterSpacing: '0.02em',
-      }}
-    >
-      {name ? name.slice(0, 1) : '?'}
-    </div>
-  );
+  return fallback();
 };
 Avatar = React.memo(Avatar);
 
@@ -4423,7 +4436,7 @@ function DataTable({ records, showOperatorCols = true, onRowClick, onSelectPlatf
               >
                 <td className="px-4 py-3.5">
                   <div className="flex items-center gap-3 min-w-[200px]">
-                    <Avatar gradient={r.avatar_gradient} name={r.account} src={r.avatar_url} dataUrl={r.avatar_data_url} />
+                    <Avatar gradient={r.avatar_gradient} name={r.account} src={r.avatar_url} dataUrl={r.avatar_data_url} platformKey={r.platform_key} platformName={r.platform} />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-semibold text-ink-900 truncate">{r.account}</span>
@@ -4607,7 +4620,7 @@ function DetailDrawer({ record, onClose }) {
                 className="rounded-3xl bg-white shadow-[0_30px_100px_rgba(0,0,0,0.26)] border border-black/[0.06] flex flex-col overflow-hidden"
               >
             <div className="px-6 pt-5 pb-4 border-b border-black/[0.04] flex items-start gap-4">
-              <Avatar gradient={record.avatar_gradient} name={record.account} size={56} />
+              <Avatar gradient={record.avatar_gradient} name={record.account} size={56} platformKey={record.platform_key} platformName={record.platform} src={record.avatar_url} dataUrl={record.avatar_data_url} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h3 className="text-[20px] font-bold tracking-tight text-ink-900 truncate">{record.account}</h3>
@@ -5025,7 +5038,7 @@ function OperatorOverview({ operatorStat, onClose, onOpenRecord, onSelectPlatfor
                   onClick={() => onOpenRecord && onOpenRecord(r)}
                   className={`flex items-center gap-3 text-left p-3 rounded-xl border ${r.abnormal ? 'border-amber-300/60 bg-amber-50/40' : 'border-black/[0.04] bg-white hover:shadow-md hover:border-indigo-100'}`}
                 >
-                  <Avatar gradient={r.avatar_gradient} name={r.account} size={36} />
+                  <Avatar gradient={r.avatar_gradient} name={r.account} size={36} platformKey={r.platform_key} platformName={r.platform} src={r.avatar_url} dataUrl={r.avatar_data_url} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5">
                       <span className="text-[13px] font-semibold text-ink-900 truncate">{r.account}</span>
@@ -6535,7 +6548,7 @@ export default function App() {
                   transition={{ delay: i * 0.04 }}
                   className="flex items-center gap-2.5 sm:gap-3 p-2 sm:p-2.5 rounded-xl hover:bg-ink-50/60 transition min-w-0"
                 >
-                  <Avatar gradient={c.avatar_gradient} name={c.account} size={34} />
+                  <Avatar gradient={c.avatar_gradient} name={c.account} size={34} platformKey={c.platform_key} platformName={c.platform} src={c.avatar_url} dataUrl={c.avatar_data_url} />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2 sm:gap-3 mb-1.5">
                       <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
