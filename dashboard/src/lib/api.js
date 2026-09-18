@@ -1,5 +1,69 @@
 import { PLATFORM_META, PLATFORM_LOGOS, PLATFORM_METRIC_SEMANTICS } from './mockData.js';
 
+const DEFAULT_GRADIENTS = [
+  '#6366f1,#8b5cf6', '#0ea5e9,#22d3ee', '#f59e0b,#ef4444',
+  '#10b981,#14b8a6', '#ec4899,#f43f5e', '#4263EB,#3b82f6',
+  '#FF4500,#f59e0b', '#8b5cf6,#ec4899', '#0891b2,#6366f1',
+];
+
+function gradientForPlatform(key) {
+  const meta = PLATFORM_META[key];
+  if (meta?.color) {
+    const c = meta.color.replace('#', '');
+    const r = parseInt(c.substring(0, 2), 16) || 99;
+    const g = parseInt(c.substring(2, 4), 16) || 102;
+    const b = parseInt(c.substring(4, 6), 16) || 241;
+    const clamp = (v) => Math.max(0, Math.min(255, v));
+    const hex = (n) => clamp(Math.round(n)).toString(16).padStart(2, '0');
+    const light = `#${hex(r + (255 - r) * 0.35)}${hex(g + (255 - g) * 0.35)}${hex(b + (255 - b) * 0.35)}`;
+    return `${meta.color},${light}`;
+  }
+  return DEFAULT_GRADIENTS[Math.abs(fnv1a32(key || 'default')) % DEFAULT_GRADIENTS.length];
+}
+function fnv1a32(str) {
+  let h = 0x811c9dc5;
+  const s = String(str || '');
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h * 0x01000193) >>> 0; }
+  return h >>> 0;
+}
+
+export function pickPostCover(post, defaultPlatformKey) {
+  if (!post || typeof post !== 'object') return { type: 'fallback-gradient', src: '', gradient: DEFAULT_GRADIENTS[0], platform_key: defaultPlatformKey || '' };
+  const pk = post.platform_key || defaultPlatformKey || '';
+  const candidates = [post.cover, post.cover_url, post.thumbnail, post.image, (post.images && post.images[0])];
+  for (let i = 0; i < candidates.length; i++) {
+    const raw = candidates[i];
+    if (!raw || typeof raw !== 'string') continue;
+    const v = raw.trim();
+    if (!v || v.length < 5) continue;
+    if (/^matrix:\/\/fallback\/(.+)$/i.test(v)) {
+      const fpk = decodeURIComponent(RegExp.$1);
+      return { type: 'fallback-gradient', src: '', gradient: gradientForPlatform(fpk || pk), platform_key: fpk || pk };
+    }
+    if (/(data:image[^,]*base64,[A-Za-z0-9+/=]{0,64})$/i.test(v)) continue;
+    if (/^https?:\/\//i.test(v) || v.startsWith('data:image')) {
+      return { type: 'image', src: v, gradient: gradientForPlatform(pk), platform_key: pk };
+    }
+    try {
+      const u = new URL(v, window.location.origin);
+      if (u.protocol === 'http:' || u.protocol === 'https:') {
+        return { type: 'image', src: u.href, gradient: gradientForPlatform(pk), platform_key: pk };
+      }
+    } catch {}
+  }
+  return { type: 'fallback-gradient', src: '', gradient: gradientForPlatform(pk), platform_key: pk };
+}
+
+function _enrichPosts(posts, defaultPlatformKey) {
+  if (!Array.isArray(posts)) return [];
+  return posts.map(p => {
+    if (!p || typeof p !== 'object') return p;
+    const pk = p.platform_key || defaultPlatformKey || '';
+    const thumb = pickPostCover(p, pk);
+    return { ...p, platform_key: pk, _cover_src: thumb.src, _cover_type: thumb.type, cover_gradient: p.cover_gradient || (thumb.gradient || undefined) };
+  });
+}
+
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
 const SESSION_KEY = 'matrix_current_operator_uid';
@@ -461,7 +525,7 @@ function mapRecordLive(r, i) {
       followers, views, likes, comments, collect,
       engagement_rate: Number(er),
       abnormal: (followers === 0 && views === 0) || !!r.extra?.error || !!r.abnormal,
-      posts: Array.isArray(r.posts) ? r.posts : [],
+      posts: _enrichPosts(Array.isArray(r.posts) ? r.posts : [], pk),
       daily_trend: Array.isArray(r.daily_trend) ? r.daily_trend : [],
     };
   } else {
@@ -470,7 +534,7 @@ function mapRecordLive(r, i) {
       ...recWithMetric,
       members: Number(r.members || r.watchers || 0),
       message_volume_24h: Number(r.message_volume_24h || r.msg_24h || 0),
-      posts: Array.isArray(r.posts) ? r.posts : [],
+      posts: _enrichPosts(Array.isArray(r.posts) ? r.posts : [], pk),
       daily_trend: Array.isArray(r.daily_trend) ? r.daily_trend : [],
     };
     if (r.symbol !== undefined || r.platform_key === 'stocktwits' || /^\$/.test(rec.account)) {

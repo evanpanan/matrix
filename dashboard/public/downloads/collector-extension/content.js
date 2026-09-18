@@ -848,21 +848,21 @@
   function extractPosts(platform) {
     let out = [];
     const rules = {
-      xiaohongshu: { list: '.note-item, .feeds-container .note, a[href^="/explore/"]', title: '.title, .content, h3, p', views: '.view, .count', likes: '.like-wrapper .count, .like, .icon-like + span', comments: '.comment, .icon-comment + span', url: 'a[href]', date: '.date, .time', cover: 'img.cover, img[class*="cover"], img:not([srcset])' },
-      douyin: { list: 'li[data-e2e="user-post-item-list-item"], div[class*="video-card"], a[href^="/video/"]', title: 'div[data-e2e="user-post-item-desc"]', views: 'div[data-e2e="user-post-item-play-count"], .play-count', likes: 'div[data-e2e="user-post-item-digg"], .digg-count', comments: '.comment-count', url: 'a[href]', date: '.time', cover: 'img, img[class*="cover"], img[class*="thumbnail"]' },
-      weibo: { list: 'div[class*="feed"] > div, div[class*="Feed_item"], div[class*="Card_wrap"], div[class*="card-wrap"], div[class*="weibo-item"], article, [class*="vue-recycle-scroller"] > div > div, .WB_cardwrap[class*="S_bg2"]', title: '.WB_text, .content, [class*="weibo-text"], [class*="Feed_item_content"], [class*="text"], p, [class*="detail"] [class*="content"]', views: '[class*="views"], [class*="read-count"], [class*="WB_from"], .WB_from a, [class*="count"]', viewsRx: /阅读\s*([\d.]+万?)/i, likes: '.WB_feed_handle .pos span:nth-child(3) em, [aria-label*="like"] span, [class*="like-count"], [class*="likes"], button[class*="like"] span, [class*="icon-like"] + span, [class*="feed_handle"] span:nth-child(3) em', comments: '.WB_feed_handle .pos span:nth-child(2) em, [aria-label*="comment"] span, [class*="comment-count"], [class*="comments"], button[class*="comment"] span, [class*="icon-comment"] + span, [class*="feed_handle"] span:nth-child(2) em', url: '.WB_from a[href], a[href*="status"], a[href*="/weibo/"], [class*="from"] a, [class*="time"] a', date: '.WB_from a, time, [class*="from"] a, [class*="time"], [class*="publish"]', cover: 'img.WB_pic, img[src*="sinaimg.cn"], img[class*="pic"], img[class*="cover"], img[class*="media"]' },
+      xiaohongshu: { list: '.note-item, .feeds-container .note, a[href^="/explore/"], a[href*="/discovery/item/"], section.note-item', title: '.title, .content, h3, p, .note-content, .note-item__content', views: '.view, .count, .note-scan, [class*="scan-count"]', likes: '.like-wrapper .count, .like, .icon-like + span, .note-like .count', comments: '.comment, .icon-comment + span, .note-comment .count', url: 'a[href]', date: '.date, .time, .publish-date', cover: 'img.cover, img[class*="cover"], img[class*="thumbnail"], [class*="note-cover"] img, [class*="note-item__cover"] img, video' },
+      douyin: { list: 'li[data-e2e="user-post-item-list-item"], div[class*="video-card"], a[href^="/video/"]', title: 'div[data-e2e="user-post-item-desc"]', views: 'div[data-e2e="user-post-item-play-count"], .play-count', likes: 'div[data-e2e="user-post-item-digg"], .digg-count', comments: '.comment-count', url: 'a[href]', date: '.time', cover: 'img, img[class*="cover"], img[class*="thumbnail"], [class*="avatar-enter"] ~ img, video' },
+      weibo: { list: 'div[class*="feed"] > div, div[class*="Feed_item"], div[class*="Card_wrap"], div[class*="card-wrap"], div[class*="weibo-item"], article, [class*="vue-recycle-scroller"] > div > div, .WB_cardwrap[class*="S_bg2"]', title: '.WB_text, .content, [class*="weibo-text"], [class*="Feed_item_content"], [class*="text"], p, [class*="detail"] [class*="content"]', views: '[class*="views"], [class*="read-count"], [class*="WB_from"], .WB_from a, [class*="count"]', viewsRx: /阅读\s*([\d.]+万?)/i, likes: '.WB_feed_handle .pos span:nth-child(3) em, [aria-label*="like"] span, [class*="like-count"], [class*="likes"], button[class*="like"] span, [class*="icon-like"] + span, [class*="feed_handle"] span:nth-child(3) em', comments: '.WB_feed_handle .pos span:nth-child(2) em, [aria-label*="comment"] span, [class*="comment-count"], [class*="comments"], button[class*="comment"] span, [class*="icon-comment"] + span, [class*="feed_handle"] span:nth-child(2) em', url: '.WB_from a[href], a[href*="status"], a[href*="/weibo/"], [class*="from"] a, [class*="time"] a', date: '.WB_from a, time, [class*="from"] a, [class*="time"], [class*="publish"]', cover: 'img.WB_pic, img[src*="sinaimg.cn"], img[class*="pic"], img[class*="cover"], img[class*="media"], [class*="feed_img"], [class*="Feed_media"] img, video, [class*="article"] img' },
       bilibili: { list: '.small-item, .video-list-item, li.small-item', title: '.title, .info .title', views: '.so-icon, .play', likes: '.like, .fav', comments: '.comment, .danmaku', url: 'a[href]', date: '.time', cover: 'img, .cover img, .pic img' },
-      x: { list: 'article[data-testid="tweet"], div[data-testid="cellInnerDiv"]', title: 'div[data-testid="tweetText"]', views: 'div[aria-label*="views"], a[href$="analytics"] span', likes: 'button[data-testid="like"] div, div[data-testid="like"] span', comments: 'button[data-testid="reply"] div, div[data-testid="reply"] span', url: 'a[href*="status"]', date: 'time', cover: 'img[src*="pbs.twimg.com/media"], div[aria-label*="Image"] img, article img' },
-      tiktok: { list: 'div[data-e2e="user-post-item"], a[href^="/video/"]', title: 'div[data-e2e="user-post-item-desc"]', views: 'div[data-e2e="user-post-item-play-count"], strong', likes: 'div[data-e2e="user-post-item-digg"] strong', comments: '.comment-count', url: 'a[href]', date: '.time', cover: 'img, img[class*="cover"], img[class*="thumbnail"]' },
-      xueqiu: { list: '.status-list .status, article, .AnonymousHome_home__timeline-item', title: '.status-title, .status-content', views: '.status-source, .retweet', likes: '.iconfont.icon-like + span, .like-count', comments: '.reply-count, .iconfont.icon-comment + span', url: 'a[href^="/status/"]', date: '.status-source a, time', cover: 'img' },
-      futu: { list: '.momo-post, .article-item, .feed-item', title: '.title, .content', views: '.read-count, .view-count', likes: '.like-count, .digg-count', comments: '.comment-count', url: 'a[href]', date: '.time', cover: 'img' },
-      youtube: { list: '#contents ytd-grid-video-renderer, ytd-rich-grid-media', title: '#video-title yt-formatted-string', views: '#metadata-line yt-formatted-string:nth-child(1)', likes: '', comments: '', url: '#video-title', date: '#metadata-line yt-formatted-string:nth-child(2)', cover: 'ytd-thumbnail img, #thumbnail img, img' },
-      stocktwits: { list: 'article, div[class*="Message"], div[class*="message-item"], div[class*="Post"], div[class*="post-item"], div[class*="Stream"] > div, div[class*="stream"] > div, section[class*="post"], article.message, .stream-item', title: '.Message_content, [class*="Message"] [class*="content"], [class*="Post"] [class*="content"], [class*="post"] [class*="content"], [class*="message"] [class*="body"], [class*="message"] [class*="text"], .content, p', views: '.views', likes: '.like-count, .like-btn span, button[aria-label*="like"] span, [class*="likes"] span, [class*="like"] span, [class*="icon-like"] + span, [class*="post"] [class*="actions"] [class*="like"] em, [class*="Post"] [class*="actions"] [class*="like"] em', comments: '.reply-count, button[aria-label*="reply"] span, [class*="comments"] span, [class*="comment"] span, [class*="icon-comment"] + span, [class*="post"] [class*="actions"] [class*="reply"] em, [class*="Post"] [class*="actions"] [class*="reply"] em', url: 'a[href*="messages/"], a[href*="/message/"], [class*="time"] a, a[href*="statuses"]', date: 'time, [class*="time"], [class*="date"]', cover: 'img' },
-      reddit: { list: 'div[data-testid="post-container"], .Post', title: 'h3', views: '[data-testid="vote-arrows"] + div', likes: '[data-testid="vote-arrows"]', comments: '[data-testid="comments-count"]', url: 'a[data-testid="comments-page-link"]', date: 'time', cover: 'img' },
-      zhihu: { list: '.ContentItem, .List-item, article', title: '.ContentItem-title, h2', views: '.ContentItem-meta .number + span', viewsRx: /阅读\s*([\d.]+万?)/i, likes: '.VoteButton--up .count', comments: '.ContentItem-actions .Button--plain', commentsRx: /评论\s*(\d+)/, url: 'a[href*="answer"], a[href*="p/"]', date: '.ContentItem-time', cover: 'img' },
-      instagram: { list: 'article a[href*="/p/"]', title: 'img[alt]', views: '', likes: '', comments: '', url: 'a[href]', date: 'time', cover: 'img, img[src*="cdninstagram"]' },
-      tieba: { list: '.j_thread_list li, .threadlist_title', title: '.threadlist_title a', views: '.threadlist_rep_num', likes: '', comments: '.threadlist_rep_num', url: 'a[href]', date: '.threadlist_reply_date', cover: 'img' },
-      linkedin: { list: 'div[data-id], .occludable-update, section.feed-shared-update-v2', title: '.feed-shared-update-v2__description, .break-words', views: '.analytics-entry-point', likes: '.social-details-social-counts__reactions-count', comments: '.social-details-social-counts__comments', url: 'a[href*="posts"]', date: 'time', cover: 'img' },
+      x: { list: 'article[data-testid="tweet"], div[data-testid="cellInnerDiv"]', title: 'div[data-testid="tweetText"]', views: 'div[aria-label*="views"], a[href$="analytics"] span', likes: 'button[data-testid="like"] div, div[data-testid="like"] span', comments: 'button[data-testid="reply"] div, div[data-testid="reply"] span', url: 'a[href*="status"]', date: 'time', cover: 'img[src*="pbs.twimg.com/media"], div[aria-label*="Image"] img, article img, [data-testid="tweetPhoto"] img, video' },
+      tiktok: { list: 'div[data-e2e="user-post-item"], a[href^="/video/"]', title: 'div[data-e2e="user-post-item-desc"]', views: 'div[data-e2e="user-post-item-play-count"], strong', likes: 'div[data-e2e="user-post-item-digg"] strong', comments: '.comment-count', url: 'a[href]', date: '.time', cover: 'img, img[class*="cover"], img[class*="thumbnail"], [data-e2e*="user-post-item"] video' },
+      xueqiu: { list: '.status-list .status, article, .AnonymousHome_home__timeline-item', title: '.status-title, .status-content', views: '.status-source, .retweet', likes: '.iconfont.icon-like + span, .like-count', comments: '.reply-count, .iconfont.icon-comment + span', url: 'a[href^="/status/"]', date: '.status-source a, time', cover: 'img, [class*="status-img"] img, article img' },
+      futu: { list: '.momo-post, .article-item, .feed-item', title: '.title, .content', views: '.read-count, .view-count', likes: '.like-count, .digg-count', comments: '.comment-count', url: 'a[href]', date: '.time', cover: 'img, [class*="post-img"] img, [class*="feed-img"] img' },
+      youtube: { list: '#contents ytd-grid-video-renderer, ytd-rich-grid-media', title: '#video-title yt-formatted-string', views: '#metadata-line yt-formatted-string:nth-child(1)', likes: '', comments: '', url: '#video-title', date: '#metadata-line yt-formatted-string:nth-child(2)', cover: 'ytd-thumbnail img, #thumbnail img, img, video' },
+      stocktwits: { list: 'article, div[class*="Message"], div[class*="message-item"], div[class*="Post"], div[class*="post-item"], div[class*="Stream"] > div, div[class*="stream"] > div, section[class*="post"], article.message, .stream-item', title: '.Message_content, [class*="Message"] [class*="content"], [class*="Post"] [class*="content"], [class*="post"] [class*="content"], [class*="message"] [class*="body"], [class*="message"] [class*="text"], .content, p', views: '.views', likes: '.like-count, .like-btn span, button[aria-label*="like"] span, [class*="likes"] span, [class*="like"] span, [class*="icon-like"] + span, [class*="post"] [class*="actions"] [class*="like"] em, [class*="Post"] [class*="actions"] [class*="like"] em', comments: '.reply-count, button[aria-label*="reply"] span, [class*="comments"] span, [class*="comment"] span, [class*="icon-comment"] + span, [class*="post"] [class*="actions"] [class*="reply"] em, [class*="Post"] [class*="actions"] [class*="reply"] em', url: 'a[href*="messages/"], a[href*="/message/"], [class*="time"] a, a[href*="statuses"]', date: 'time, [class*="time"], [class*="date"]', cover: 'img, [class*="Message"] img, [class*="Post"] img, article img' },
+      reddit: { list: 'div[data-testid="post-container"], .Post', title: 'h3', views: '[data-testid="vote-arrows"] + div', likes: '[data-testid="vote-arrows"]', comments: '[data-testid="comments-count"]', url: 'a[data-testid="comments-page-link"]', date: 'time', cover: 'img, [data-testid="post-container"] img, .Post img, [class*="media-preview"] img, shreddit-player video, video' },
+      zhihu: { list: '.ContentItem, .List-item, article', title: '.ContentItem-title, h2', views: '.ContentItem-meta .number + span', viewsRx: /阅读\s*([\d.]+万?)/i, likes: '.VoteButton--up .count', comments: '.ContentItem-actions .Button--plain', commentsRx: /评论\s*(\d+)/, url: 'a[href*="answer"], a[href*="p/"]', date: '.ContentItem-time', cover: 'img, .ContentItem img, article img, .RichContent img' },
+      instagram: { list: 'article a[href*="/p/"]', title: 'img[alt]', views: '', likes: '', comments: '', url: 'a[href]', date: 'time', cover: 'img, img[src*="cdninstagram"], video, article img' },
+      tieba: { list: '.j_thread_list li, .threadlist_title', title: '.threadlist_title a', views: '.threadlist_rep_num', likes: '', comments: '.threadlist_rep_num', url: 'a[href]', date: '.threadlist_reply_date', cover: 'img, .threadlist_pic img, .media img' },
+      linkedin: { list: 'div[data-id], .occludable-update, section.feed-shared-update-v2', title: '.feed-shared-update-v2__description, .break-words', views: '.analytics-entry-point', likes: '.social-details-social-counts__reactions-count', comments: '.social-details-social-counts__comments', url: 'a[href*="posts"]', date: 'time', cover: 'img, .feed-shared-image img, .occludable-update img, .update-components-image img, video' },
     };
     const r = rules[platform.key] || null;
     if (!r) return out;
@@ -898,23 +898,69 @@
         const dupPinKey = 'PIN_' + dedupKey;
         if (seen.has(dupPinKey) && !isPin) { seen.add(dedupKey); continue; }
       }
+      const pickImgSrc = (el) => {
+        if (!el) return '';
+        try {
+          if (el.tagName === 'VIDEO') {
+            const p = (el.getAttribute('poster') || '').trim();
+            if (p && p.length > 4 && !/(data:image[^,]*base64,[A-Za-z0-9+/=]{0,32})$/i.test(p)) return p;
+          }
+          const src = (el.getAttribute('src') || el.src || '').toString().trim();
+          if (src && src.length > 4 && !/(data:image[^,]*base64,[A-Za-z0-9+/=]{0,32})$/i.test(src)) return src;
+          const ds = (el.getAttribute('data-src') || el.getAttribute('data-original') || el.getAttribute('data-url') || el.getAttribute('data-lazy-src') || '').toString().trim();
+          if (ds && ds.length > 4 && !/(data:image[^,]*base64,[A-Za-z0-9+/=]{0,32})$/i.test(ds)) return ds;
+          const ss = (el.getAttribute('srcset') || '').toString().trim();
+          if (ss) {
+            const first = ss.split(',').map(s => s.trim().split(/\s+/)[0]).find(u => u && u.length > 4 && !/(data:image[^,]*base64,[A-Za-z0-9+/=]{0,32})$/i.test(u));
+            if (first) return first;
+          }
+        } catch {}
+        return '';
+      };
       let coverSrc = '';
+      let images = [];
       if (r.cover) {
         try {
-          const imgs = Array.from(n.querySelectorAll(r.cover) || []).filter(img => (img.src || '').trim().length > 4);
-          if (imgs.length > 0) coverSrc = imgs[0].src;
+          const rawImgs = Array.from(n.querySelectorAll(r.cover) || []);
+          const all = [];
+          for (const im of rawImgs) {
+            const s = pickImgSrc(im);
+            if (s) all.push(s);
+          }
+          if (all.length > 0) {
+            const uniq = [];
+            const seenImg = new Set();
+            for (const s of all) {
+              try { const u = new URL(s, location.href).href; if (!seenImg.has(u)) { seenImg.add(u); uniq.push(u); } } catch { if (!seenImg.has(s)) { seenImg.add(s); uniq.push(s); } }
+            }
+            coverSrc = uniq[0] || '';
+            images = uniq.slice(0, 9);
+          }
         } catch {}
       }
       if (!coverSrc) {
         try {
-          const anyImg = Array.from(n.getElementsByTagName('img') || []).filter(img => (img.src || '').trim().length > 4 && !/(data:image[^,]*base64,[A-Za-z0-9+/=]{0,32})$/i.test(img.src));
-          if (anyImg.length > 0) coverSrc = anyImg[0].src;
+          const allNodes = Array.from(n.getElementsByTagName ? n.getElementsByTagName('img') : []).concat(Array.from(n.getElementsByTagName ? n.getElementsByTagName('video') : []));
+          const all = [];
+          for (const im of allNodes) {
+            const s = pickImgSrc(im);
+            if (s) all.push(s);
+          }
+          const uniq = [];
+          const seenImg = new Set();
+          for (const s of all) {
+            try { const u = new URL(s, location.href).href; if (!seenImg.has(u)) { seenImg.add(u); uniq.push(u); } } catch { if (!seenImg.has(s)) { seenImg.add(s); uniq.push(s); } }
+          }
+          if (uniq.length > 0) { coverSrc = uniq[0]; images = uniq.slice(0, 9); }
         } catch {}
       }
-      if (coverSrc && !/^https?:/i.test(coverSrc) && !coverSrc.startsWith('data:')) {
+      if (coverSrc && !/^https?:/i.test(coverSrc) && !coverSrc.startsWith('data:') && !coverSrc.startsWith('matrix://')) {
         try { coverSrc = new URL(coverSrc, location.href).href; } catch {}
       }
-      const images = coverSrc ? [coverSrc] : [];
+      if (!coverSrc) {
+        coverSrc = 'matrix://fallback/' + encodeURIComponent(platform.key || 'unknown');
+      }
+      if (!images || images.length === 0) images = [coverSrc];
       const postIdStr = normalizeDedupKey(platform.key, href, title, iso) || (fnv1a((href||'') + '|' + (title||'') + '|' + (iso||'')));
       out.push({ id: postIdStr, title, views, likes, comments, shares: 0, collect: 0, engagement_rate: views > 0 ? +(((likes + comments) / views) * 100).toFixed(2) : 0, url: href, published_at: iso, platform: platform.name, platform_key: platform.key, cover: coverSrc, images });
     }

@@ -7,7 +7,7 @@ import {
   Clock, Heart, MessageCircle, Repeat2, Flame, TrendingUp,
 } from 'lucide-react';
 
-import { PLATFORM_META, PLATFORM_LOGOS, sanitizeUrl, dedupPosts } from './lib/api.js';
+import { PLATFORM_META, PLATFORM_LOGOS, sanitizeUrl, dedupPosts, pickPostCover } from './lib/api.js';
 import { PLATFORM_METRIC_SEMANTICS } from './lib/mockData.js';
 
 dayjs.extend(relativeTime);
@@ -320,13 +320,44 @@ export default function PlatformDetailModal({ platformName, records, onClose }) 
                           ><ExternalLink size={12} /></button>
                         )}
                         <div className="relative shrink-0">
-                          {p.cover_gradient ? (
-                            <div className="w-[48px] h-[48px] sm:w-[54px] sm:h-[54px] rounded-lg overflow-hidden shrink-0">
-                              <div className="w-full h-full" style={{ background: `linear-gradient(135deg, ${(p.cover_gradient || '#6366f1,#8b5cf6').split(',')[0]}, ${(p.cover_gradient || '#6366f1,#8b5cf6').split(',')[1]})` }} />
-                            </div>
-                          ) : (
-                            <div className="w-[48px] h-[48px] sm:w-[54px] sm:h-[54px] rounded-lg bg-ink-100 flex items-center justify-center text-ink-400 text-[11px] font-bold shrink-0">#{i + 1}</div>
-                          )}
+                          {(() => {
+                            const thumb = pickPostCover(p, platformMeta?.key || p.platform_key);
+                            const grad = (p.cover_gradient || thumb.gradient || '#6366f1,#8b5cf6').split(',');
+                            const meta = PLATFORM_META[thumb.platform_key || platformMeta?.key || p.platform_key];
+                            const logo = PLATFORM_LOGOS[thumb.platform_key || platformMeta?.key || p.platform_key];
+                            if (thumb.src) {
+                              return (
+                                <div className="w-[48px] h-[48px] sm:w-[54px] sm:h-[54px] rounded-lg overflow-hidden bg-ink-50 shrink-0 relative">
+                                  <img
+                                    src={thumb.src}
+                                    alt=""
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      if (e.currentTarget.dataset.fallback === '1') return;
+                                      e.currentTarget.dataset.fallback = '1';
+                                      e.currentTarget.remove();
+                                    }}
+                                  />
+                                </div>
+                              );
+                            }
+                            return (
+                              <div className="w-[48px] h-[48px] sm:w-[54px] sm:h-[54px] rounded-lg overflow-hidden shrink-0 relative">
+                                <div className="w-full h-full" style={{ background: `linear-gradient(135deg, ${grad[0]}, ${grad[1]})` }} />
+                                {logo ? (
+                                  <div
+                                    className="absolute inset-0 flex items-center justify-center text-white/95"
+                                    dangerouslySetInnerHTML={{ __html: logo }}
+                                    style={{ opacity: 0.82, transform: 'scale(0.62)' }}
+                                  />
+                                ) : (
+                                  <div className="absolute inset-0 flex items-center justify-center text-white text-[18px] sm:text-[20px] font-bold tracking-tight opacity-90">
+                                    #{i + 1}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                           {p.is_bomb && (
                             <span className="absolute -top-1.5 -right-1.5 inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500 text-white shadow shrink-0">
                               <Flame size={8} />爆

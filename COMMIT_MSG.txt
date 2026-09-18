@@ -1,0 +1,13 @@
+feat(v4.5): 帖子缩略图三级兜底（真实图→平台色渐变+平台logo）
+
+- 采集端(3份content.js)：
+  - 所有18平台cover选择器加强（小红书note-item__cover/微博Feed_media/X的tweetPhoto/Reddit的media-preview/LinkedIn的update-components-image等）
+  - pickImgSrc 4源兜底(src/data-src(srcset/poster)，兼容懒加载和video poster
+  - 每帖去重保留最多9张图，无真实封面图写 matrix://fallback/{platform_key} 占位URL
+
+- 前端(api.js)：
+  - 新增 pickPostCover(post, defaultPk) 统一工具函数，解析 matrix://fallback 解析成平台色渐变
+  - gradientForPlatform 从 PLATFORM_META.color 生成平台品牌色生成渐变（主色→35%亮色
+  - _enrichPosts在buildRecordsFromRows ACCOUNT/COMMUNITY 双分支注入 _cover_src/_cover_type/_platform_key
+
+- 3处卡片渲染兜底(App.jsx Layers→真实<img onError移除失败自移除失败删除自身(68×68) AccountDetailDrawer.jsx L328-372/PlatformDetailModal.jsx L322-366 48×54px小号卡片全部统一逻辑：真实img优先→平台色渐变+平台logo SVG 82%opacity兜底→首字母兜底，全部完成
