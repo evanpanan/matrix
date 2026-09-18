@@ -1,4 +1,4 @@
-import { PLATFORM_META, PLATFORM_LOGOS } from './mockData.js';
+import { PLATFORM_META, PLATFORM_LOGOS, PLATFORM_METRIC_SEMANTICS } from './mockData.js';
 
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
@@ -424,6 +424,8 @@ function mapRecordLive(r, i) {
   }
   const rawId = r.id || `${entityType.toLowerCase()}_${key}_${accountName}_${i}`;
   const rawUrl = r.target_url || r.url || '#';
+  const pk = r.platform_key || meta.key;
+  const pm = PLATFORM_METRIC_SEMANTICS[pk] || { volume_label: '核心指标', volume_algo: 'posts_views_sum', interaction_label: '互动', interaction_algo: 'interactions_abs' };
   const rec = {
     id: rawId,
     account: accountName,
@@ -443,6 +445,7 @@ function mapRecordLive(r, i) {
     avatar_url: r.avatar_url || null,
     avatar_data_url: r.avatar_data_url || null,
     avatar_gradient: r.avatar_gradient || ['#6366f1,#8b5cf6', '#0ea5e9,#22d3ee', '#f59e0b,#ef4444', '#10b981,#14b8a6', '#ec4899,#f43f5e', '#4263EB,#3b82f6', '#FF4500,#f59e0b'][i % 7],
+    _metric: pm,
   };
   if (entityType === 'ACCOUNT') {
     const followers = Number(r.followers || r.fans || 0);
@@ -452,8 +455,9 @@ function mapRecordLive(r, i) {
     const collect = Number(r.collect || r.shares || 0);
     const eng = views > 0 ? ((likes + comments + collect) / views * 100) : 0;
     const er = Number(r.engagement_rate || eng).toFixed(2);
+    const recWithMetric = { ...rec, _metric: pm };
     return {
-      ...rec,
+      ...recWithMetric,
       followers, views, likes, comments, collect,
       engagement_rate: Number(er),
       abnormal: (followers === 0 && views === 0) || !!r.extra?.error || !!r.abnormal,
@@ -461,8 +465,9 @@ function mapRecordLive(r, i) {
       daily_trend: Array.isArray(r.daily_trend) ? r.daily_trend : [],
     };
   } else {
+    const recWithMetric = { ...rec, _metric: pm };
     const out = {
-      ...rec,
+      ...recWithMetric,
       members: Number(r.members || r.watchers || 0),
       message_volume_24h: Number(r.message_volume_24h || r.msg_24h || 0),
       posts: Array.isArray(r.posts) ? r.posts : [],
@@ -580,6 +585,58 @@ export function sanitizeUrl(u) {
   } catch {
     return '#';
   }
+}
+
+// ============================================================
+// 帖子去重工具（L3 展示兜底，也可被前端任何列表复用）
+// ============================================================
+export function normalizeWeiboUrl(href) {
+  if (!href) return '';
+  try {
+    const u = href.indexOf('://') > 0 ? href : ('https://weibo.com' + (href[0]==='/' ? '' : '/') + href);
+    const url = new URL(u);
+    const m = url.pathname.match(/(?:\/status\/|\/detail\/|\/weibo\/|\/\d\/)([A-Za-z0-9]+)/) || url.pathname.match(/\/(\d{6,})(?:\?|#|$)/);
+    return m ? 'weibo://' + m[1] : '';
+  } catch { return ''; }
+}
+export function normalizePostKey(platformKey, href, title, publishedAt) {
+  platformKey = platformKey || '';
+  if (platformKey === 'weibo') {
+    const w = normalizeWeiboUrl(href);
+    if (w) return w;
+  }
+  try {
+    if (href) {
+      const u = new URL(href, location.href);
+      const g = (u.hostname + u.pathname).toLowerCase().replace(/\/+$/, '');
+      if (g) return g;
+    }
+  } catch {}
+  return ((title || '').toString().slice(0, 30) + '|' + (publishedAt || '0'));
+}
+/**
+ * 帖子去重（保持首次出现顺序稳定）
+ * @param {Array} posts 
+ * @param {String} defaultPlatformKey 
+ * @returns {Array} 去重后的 posts
+ */
+export function dedupPosts(posts, defaultPlatformKey) {
+  if (!Array.isArray(posts) || posts.length === 0) return [];
+  const seen = new Set();
+  const out = [];
+  for (let i = 0; i < posts.length; i++) {
+    const p = posts[i] || {};
+    const key = normalizePostKey(
+      p.platform_key || defaultPlatformKey || '',
+      p.url,
+      p.title,
+      p.published_at
+    );
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
+  }
+  return out;
 }
 
 const JWT_STORAGE_KEY = 'matrix_jwt_token';

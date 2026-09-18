@@ -59,6 +59,27 @@ export const PLATFORM_LOGOS = {
   weibo: PLATFORMS[17].logo_svg,
 };
 
+export const PLATFORM_METRIC_SEMANTICS = {
+  wechat:         { volume_label: '累计阅读', volume_algo: 'max_posts_account_views', interaction_label: '平均互动/篇', interaction_algo: 'avg_post_interactions' },
+  wechat_video:   { volume_label: '累计播放', volume_algo: 'max_posts_account_views', interaction_label: '平均点赞/篇', interaction_algo: 'avg_post_likes' },
+  douyin:         { volume_label: '累计播放', volume_algo: 'max_posts_account_views', interaction_label: '点赞',           interaction_algo: 'likes_total' },
+  xiaohongshu:    { volume_label: '浏览',     volume_algo: 'max_posts_account_views', interaction_label: '互动数',         interaction_algo: 'interactions_abs' },
+  weibo:          { volume_label: '阅读',     volume_algo: 'posts_views_sum',           interaction_label: '转评赞',         interaction_algo: 'interactions_abs' },
+  futu:           { volume_label: '浏览',     volume_algo: 'posts_views_sum',           interaction_label: '互动数',         interaction_algo: 'interactions_abs' },
+  laohu:          { volume_label: '浏览',     volume_algo: 'posts_views_sum',           interaction_label: '互动数',         interaction_algo: 'interactions_abs' },
+  huasheng:       { volume_label: '浏览',     volume_algo: 'posts_views_sum',           interaction_label: '互动数',         interaction_algo: 'interactions_abs' },
+  xueqiu:         { volume_label: '浏览',     volume_algo: 'posts_views_sum',           interaction_label: '互动数',         interaction_algo: 'interactions_abs' },
+  x:              { volume_label: '查看',     volume_algo: 'max_posts_account_views', interaction_label: '互动率',         interaction_algo: 'engagement_rate_pct' },
+  youtube:        { volume_label: '累计播放', volume_algo: 'max_posts_account_views', interaction_label: '点赞/视频',      interaction_algo: 'avg_post_likes' },
+  tiktok:         { volume_label: '累计播放', volume_algo: 'max_posts_account_views', interaction_label: '点赞',           interaction_algo: 'likes_total' },
+  linkedin:       { volume_label: '浏览',     volume_algo: 'posts_views_sum',           interaction_label: '互动数',         interaction_algo: 'interactions_abs' },
+  instagram:      { volume_label: null,       volume_algo: 'none',                      interaction_label: '互动数',         interaction_algo: 'interactions_abs' },
+  discord:        { volume_label: '24h消息',  volume_algo: 'message_volume_24h',        interaction_label: '在线人数',       interaction_algo: 'online_count' },
+  stocktwits:     { volume_label: '24h发帖',  volume_algo: 'posts_24h_count',           interaction_label: '多空情绪',       interaction_algo: 'bull_bear_ratio' },
+  seekingalpha:   { volume_label: '浏览',     volume_algo: 'posts_views_sum',           interaction_label: '互动数',         interaction_algo: 'interactions_abs' },
+  reddit:         { volume_label: '24h帖子',  volume_algo: 'posts_24h_count',           interaction_label: '在线率',         interaction_algo: 'online_ratio' },
+};
+
 
 const OPERATORS = [
   { operator_uid: 'admin_001', operator_name: '张总（管理）', role: 'admin' },

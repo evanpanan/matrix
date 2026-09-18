@@ -11,7 +11,7 @@ import {
   Eye, Heart, MessageCircle, Repeat2, Activity,
 } from 'lucide-react';
 
-import { PLATFORM_META, PLATFORM_LOGOS, sanitizeUrl } from './lib/api.js';
+import { PLATFORM_META, PLATFORM_LOGOS, sanitizeUrl, dedupPosts } from './lib/api.js';
 
 dayjs.extend(relativeTime);
 dayjs.locale('zh-cn');
@@ -118,7 +118,7 @@ export default function AccountDetailDrawer({ record, onClose, flashIds = new Se
   const [postSort, setPostSort] = useState('newest');
   const trend = record?.daily_trend || [];
   const posts = useMemo(() => {
-    const list = [...(record?.posts || [])];
+    const list = dedupPosts([...(record?.posts || [])], record?.platform_key);
     if (postSort === 'newest') {
       list.sort((a, b) => (b.published_at || '').localeCompare(a.published_at || ''));
     } else {
@@ -128,6 +128,7 @@ export default function AccountDetailDrawer({ record, onClose, flashIds = new Se
   }, [record, postSort]);
   const audience = record?.entity_type === 'COMMUNITY' ? (record?.members || 0) : (record?.followers || 0);
   const volume = record?.entity_type === 'COMMUNITY' ? (record?.message_volume_24h || record?.posts_24h || 0) : (record?.views || 0);
+  const interactions_abs = Number(record?.likes || 0) + Number(record?.comments || 0) + Number(record?.collect || 0) + Number(record?.shares || 0);
 
   const platformNameToKey = (name) => {
     const meta = PLATFORM_META[name] || Object.values(PLATFORM_META).find(m => m.name === name);
@@ -219,31 +220,23 @@ export default function AccountDetailDrawer({ record, onClose, flashIds = new Se
             <div className="flex-1 overflow-y-auto">
               <div className="px-4 sm:px-6 py-4 sm:py-5 grid grid-cols-2 sm:grid-cols-3 gap-3">
                 <motion.div variants={FADE_UP} initial="hidden" animate="show" className="rounded-xl border border-black/[0.04] bg-ink-50/60 p-3 text-center">
-                  <div className="text-[10.5px] text-ink-400 font-semibold uppercase tracking-wider">{record.entity_type === 'COMMUNITY' ? 'Members/Watchers' : '总粉丝'}</div>
+                  <div className="text-[10.5px] text-ink-400 font-semibold uppercase tracking-wider">{record.entity_type === 'COMMUNITY' ? '成员' : '粉丝'}</div>
                   <div className="text-[18px] font-bold text-ink-800 mt-1 tabular-nums">{formatShort(audience)}</div>
                 </motion.div>
                 <motion.div variants={FADE_UP} initial="hidden" animate="show" transition={{ delay: 0.05 }} className="rounded-xl border border-black/[0.04] bg-ink-50/60 p-3 text-center">
-                  <div className="text-[10.5px] text-ink-400 font-semibold uppercase tracking-wider">{record.entity_type === 'COMMUNITY' ? '24h 消息量' : '曝光量'}</div>
+                  <div className="text-[10.5px] text-ink-400 font-semibold uppercase tracking-wider">{record?._metric?.volume_label || (record.entity_type === 'COMMUNITY' ? '消息量' : '曝光')}</div>
                   <div className="text-[18px] font-bold text-ink-800 mt-1 tabular-nums">{formatShort(volume)}</div>
                 </motion.div>
                 <motion.div variants={FADE_UP} initial="hidden" animate="show" transition={{ delay: 0.1 }} className="rounded-xl border border-black/[0.04] bg-ink-50/60 p-3 text-center">
-                  <div className="text-[10.5px] text-ink-400 font-semibold uppercase tracking-wider">
-                    {record.entity_type === 'COMMUNITY' ? (record.symbol !== undefined ? '情绪看涨' : '在线率') : '互动率'}
-                  </div>
-                  <div className="text-[18px] font-bold mt-1 tabular-nums" style={{ color: record.entity_type === 'COMMUNITY' ? (record.symbol ? (record.sentiment_bull >= record.sentiment_bear ? '#059669' : '#e11d48') : (record.engagement_rate >= 5 ? '#059669' : '#4f46e5')) : '#4f46e5' }}>
-                    {record.entity_type === 'COMMUNITY'
-                      ? (record.symbol !== undefined
-                        ? `${record.sentiment_bull || 0}%`
-                        : (record.members ? `${((record.online || 0) / record.members * 100).toFixed(2)}%` : '—'))
-                      : `${Number(record.engagement_rate || 0).toFixed(2)}%`}
-                  </div>
+                  <div className="text-[10.5px] text-ink-400 font-semibold uppercase tracking-wider">{record?._metric?.interaction_label || '互动'}</div>
+                  <div className="text-[18px] font-bold text-ink-800 mt-1 tabular-nums">{formatShort(interactions_abs)}</div>
                 </motion.div>
               </div>
               <div className="px-6 pb-5">
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <h4 className="text-[14px] font-semibold text-ink-900 tracking-tight">核心指标趋势</h4>
-                    <p className="text-[11.5px] text-ink-500 mt-0.5">近 30 天 · 粉丝/成员增长 + 曝光双轴</p>
+                    <p className="text-[11.5px] text-ink-500 mt-0.5">近 30 天 · 粉丝/成员增长 + {record?._metric?.volume_label || '曝光'}双轴</p>
                   </div>
                 </div>
                 <div className="h-[230px] rounded-2xl border border-black/[0.04] bg-ink-50/30 p-3 -mx-1">

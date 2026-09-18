@@ -29,7 +29,7 @@ import {
   listCollectorMachines, adminSiteOverview, adminClearData, adminDeleteAccount,
   adminListMonitoredStocks, adminAddMonitoredStock, adminDeleteMonitoredStock,
   adminListMonitoredCommunities, adminAddMonitoredCommunity, adminDeleteMonitoredCommunity,
-  adminUpdateAccountLogo,
+  adminUpdateAccountLogo, dedupPosts,
 } from './lib/api.js';
 import AccountDetailDrawer from './AccountDetailDrawer.jsx';
 import PlatformDetailModal from './PlatformDetailModal.jsx';
@@ -4411,8 +4411,8 @@ function DataTable({ records, showOperatorCols = true, onRowClick, onSelectPlatf
               <th className={`${headClass} w-[90px]`}>类型</th>
               <th className={`${headClass} w-[140px]`}>平台</th>
               {headBtn('entity_audience', '粉丝/成员', 'right')}
-              {headBtn('entity_volume', '曝光/消息', 'right')}
-              {headBtn('engagement_rate', '互动率', 'right')}
+              {headBtn('entity_volume', '核心指标', 'right')}
+              {headBtn('engagement_rate', '核心指标 B', 'right')}
               {showOperatorCols && <th className={`${headClass} w-[110px]`}>归属运营</th>}
               {showOperatorCols && <th className={`${headClass} w-[110px]`}>上报人</th>}
               {showOperatorCols && <th className={`${headClass} w-[130px]`}>机器</th>}
@@ -4484,24 +4484,79 @@ function DataTable({ records, showOperatorCols = true, onRowClick, onSelectPlatf
                   <div className={`font-semibold tabular-nums ${r.entity_audience === 0 ? 'text-ink-300' : 'text-ink-900'}`}>{formatShort(r.entity_audience)}</div>
                 </td>
                 <td className="px-4 py-3.5 text-right">
-                  <motion.div
-                    animate={flashRecords?.has(r.account) ? { backgroundColor: ['rgba(34,197,94,0)', 'rgba(34,197,94,0.12)', 'rgba(34,197,94,0)'], color: ['#18181b', '#059669', '#18181b'] } : {}}
-                    transition={{ duration: 1.2, ease: 'easeOut' }}
-                    className={`inline-block rounded-lg px-1.5 py-0.5 font-medium tabular-nums ${r.entity_volume === 0 ? 'text-ink-300' : 'text-ink-800'}`}
-                  >{formatShort(r.entity_volume)}</motion.div>
+                  <div className="inline-flex items-center gap-1.5 justify-end">
+                    <motion.div
+                      animate={flashRecords?.has(r.account) ? { backgroundColor: ['rgba(34,197,94,0)', 'rgba(34,197,94,0.12)', 'rgba(34,197,94,0)'], color: ['#18181b', '#059669', '#18181b'] } : {}}
+                      transition={{ duration: 1.2, ease: 'easeOut' }}
+                      className={`inline-block rounded-lg px-1.5 py-0.5 font-medium tabular-nums ${r.entity_volume === 0 ? 'text-ink-300' : 'text-ink-800'}`}
+                    >{formatShort(r.entity_volume)}</motion.div>
+                    {r._metric?.volume_label && (
+                      <span className="inline-flex items-center text-[10.5px] font-medium text-ink-400 bg-ink-100/60 rounded-full px-1.5 py-0.5 tabular-nums">
+                        {r._metric.volume_label}
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-3.5 text-right">
-                  {r.entity_type === 'COMMUNITY' ? (
-                    r.sentiment_bull !== undefined ? (
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11.5px] font-bold tabular-nums ${r.sentiment_bull >= r.sentiment_bear ? 'text-emerald-700 bg-emerald-50' : 'text-rose-700 bg-rose-50'}`}>
-                        🐂 {r.sentiment_bull}%
-                      </span>
-                    ) : <span className="text-[11.5px] text-ink-500">每 {(r.posts_24h > 0 ? (1440 / r.posts_24h).toFixed(0) : '—')} 分一帖</span>
-                  ) : (r.engagement_rate > 0 ? (
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11.5px] font-semibold tabular-nums ${r.engagement_rate >= 5 ? 'text-emerald-700 bg-emerald-50' : r.engagement_rate >= 2 ? 'text-indigo-700 bg-indigo-50' : 'text-ink-600 bg-ink-50'}`}>
-                      <Activity size={10.5} />{Number(r.engagement_rate).toFixed(2)}%
-                    </span>
-                  ) : <span className="text-ink-300 text-[12px]">—</span>)}
+                  {(() => {
+                    const algo = r._metric?.interaction_algo || '';
+                    const posts = Array.isArray(r.posts) ? r.posts : [];
+                    switch (algo) {
+                      case 'engagement_rate_pct': {
+                        const er = Number(r.engagement_rate || 0);
+                        return er > 0 ? (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11.5px] font-semibold tabular-nums ${er >= 5 ? 'text-emerald-700 bg-emerald-50' : er >= 2 ? 'text-indigo-700 bg-indigo-50' : 'text-ink-600 bg-ink-50'}`}>
+                            <Activity size={10.5} />{er.toFixed(2)}%
+                          </span>
+                        ) : <span className="text-ink-300 text-[12px]">—</span>;
+                      }
+                      case 'interactions_abs': {
+                        const absVal = (Number(r.likes) || 0) + (Number(r.comments) || 0) + (Number(r.collect) || 0) + (Number(r.shares) || 0);
+                        return <span className="text-[12.5px] font-semibold text-indigo-600 tabular-nums">{absVal}</span>;
+                      }
+                      case 'avg_post_likes':
+                      case 'likes_total': {
+                        let likesVal = Number(r.likes) || 0;
+                        if (!likesVal && posts.length > 0) {
+                          likesVal = posts.reduce((s, p) => s + (Number(p.likes) || 0), 0);
+                        }
+                        return <span className="text-[12.5px] font-semibold text-ink-800 tabular-nums">{likesVal || '—'}</span>;
+                      }
+                      case 'posts_24h_count': {
+                        const cnt = Number(r.posts_24h) || Number(r.message_volume_24h) || 0;
+                        return <span className="text-[12.5px] font-semibold text-ink-800 tabular-nums">{cnt} 帖</span>;
+                      }
+                      case 'online_count': {
+                        const online = Number(r.online) || 0;
+                        return <span className="text-[12.5px] font-semibold text-ink-800 tabular-nums">{online} 在线</span>;
+                      }
+                      case 'bull_bear_ratio': {
+                        const bull = Number(r.sentiment_bull) || 50;
+                        const bear = Number(r.sentiment_bear) || 50;
+                        return (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11.5px] font-bold tabular-nums ${bull >= bear ? 'text-emerald-700 bg-emerald-50' : 'text-rose-700 bg-rose-50'}`}>
+                            {bull}看多 / {bear}看空
+                          </span>
+                        );
+                      }
+                      case 'online_ratio': {
+                        if (Number(r.members) > 0) {
+                          const pct = Math.round(((Number(r.online) || 0) / Number(r.members)) * 100);
+                          return <span className="text-[12.5px] font-semibold text-ink-800 tabular-nums">{pct}%</span>;
+                        }
+                        return <span className="text-ink-300 text-[12px]">—</span>;
+                      }
+                      case 'avg_post_interactions': {
+                        if (posts.length > 0) {
+                          const total = (Number(r.likes) || 0) + (Number(r.comments) || 0);
+                          return <span className="text-[12.5px] font-semibold text-ink-800 tabular-nums">{Math.round(total / posts.length)}</span>;
+                        }
+                        return <span className="text-ink-300 text-[12px]">—</span>;
+                      }
+                      default:
+                        return <span className="text-ink-300 text-[12px]">—</span>;
+                    }
+                  })()}
                 </td>
                 {showOperatorCols && (
                   <td className="px-4 py-3.5">
@@ -4780,7 +4835,7 @@ function DetailDrawer({ record, onClose }) {
                 </motion.div>
                 <motion.div variants={FADE_UP} initial="hidden" animate="show" transition={{ delay: 0.1 }} className="rounded-xl border border-black/[0.04] bg-ink-50/60 p-3 text-center">
                   <div className="text-[10.5px] text-ink-400 font-semibold uppercase tracking-wider">
-                    {record.entity_type === 'COMMUNITY' ? (record.symbol !== undefined ? '情绪看涨' : '在线率') : '互动率'}
+                    {record.entity_type === 'COMMUNITY' ? (record.symbol !== undefined ? '情绪看涨' : '在线率') : '互动'}
                   </div>
                   <div className="text-[18px] font-bold mt-1 tabular-nums" style={{ color: record.entity_type === 'COMMUNITY' ? (record.symbol ? (record.sentiment_bull >= record.sentiment_bear ? '#059669' : '#e11d48') : (record.engagement_rate >= 5 ? '#059669' : '#4f46e5')) : '#4f46e5' }}>
                     {record.entity_type === 'COMMUNITY'
@@ -4822,7 +4877,7 @@ function DetailDrawer({ record, onClose }) {
                         />
                         <Legend verticalAlign="top" height={22} iconSize={8} wrapperStyle={{ fontSize: 11, color: '#71717a' }} />
                         <Line yAxisId="left" type="monotone" dataKey="followers" name={record.entity_type === 'COMMUNITY' ? 'Members' : '粉丝'} stroke="#6366f1" strokeWidth={2.2} dot={false} activeDot={{ r: 3, stroke: '#fff', strokeWidth: 2 }} fill="url(#g-df)" />
-                        <Line yAxisId="right" type="monotone" dataKey="views" name="曝光/消息" stroke="#0ea5e9" strokeWidth={2.2} dot={false} activeDot={{ r: 3, stroke: '#fff', strokeWidth: 2 }} fill="url(#g-dv)" />
+                        <Line yAxisId="right" type="monotone" dataKey="views" name="核心指标" stroke="#0ea5e9" strokeWidth={2.2} dot={false} activeDot={{ r: 3, stroke: '#fff', strokeWidth: 2 }} fill="url(#g-dv)" />
                       </LineChart>
                     </ResponsiveContainer>
                   ) : (
@@ -6352,7 +6407,7 @@ export default function App() {
                           <div className="flex items-start gap-3 min-w-0">
                             <div className="w-12 h-12 rounded-xl overflow-hidden shrink-0 ring-1 ring-black/[0.04]" style={{ background: `linear-gradient(135deg, ${(p?.cover_gradient || '#6366f1,#8b5cf6').split(',')[0]}, ${(p?.cover_gradient || '#6366f1,#8b5cf6').split(',')[1]})` }} />
                             <div className="flex-1 min-w-0 pr-8">
-                              <div className="text-[12.5px] font-semibold text-ink-900 leading-snug line-clamp-2 break-words">{p?.title || '互动率突破临界值'}</div>
+                              <div className="text-[12.5px] font-semibold text-ink-900 leading-snug line-clamp-2 break-words">{p?.title || '互动表现突破临界值'}</div>
                               <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-ink-500">
                                 <span className="inline-flex items-center gap-0.5">
                                   <User size={10.5} />{item.account}
@@ -6417,7 +6472,7 @@ export default function App() {
                               <div className="mt-1.5 flex items-center gap-3 text-[11px] text-ink-500 tabular-nums">
                                 <span>总曝光 <b className="text-ink-800"><AnimatedNumber value={row.views} format={v => formatShort(Math.round(v))} /></b></span>
                                 <span className="opacity-70">|</span>
-                                <span>平均互动率增幅 <b className="text-emerald-600">+{(row._avgEng || 0).toFixed(2)}</b></span>
+                                <span>平均互动增幅 <b className="text-emerald-600">+{(row._avgEng || 0).toFixed(2)}</b></span>
                               </div>
                             </div>
                           </div>
@@ -6523,7 +6578,7 @@ export default function App() {
           <StatCardMini icon={Users} label="总粉丝 / 成员" value={totals.audience} accent="indigo" sub={`${formatShort(totals.followers)} 账号粉丝 + ${formatShort(totals.members)} 社区成员`} />
           <StatCardMini icon={Eye} label="总曝光 / 阅读" value={totals.views} accent="sky" sub="全量账号曝光 + 社区消息折算" />
           <StatCardMini icon={Layers} label="总发布作品数" value={totals.posts} accent="emerald" sub="抓取到的最新帖子 / 视频数" />
-          <StatCardMini icon={Activity} label="平均互动率 %" value={totals.avgEngagement} accent="amber" sub={`${Number(totals.avgEngagement).toFixed(2)}% · ${totals.posts > 0 ? `共 ${totals.posts} 条样本` : '暂无'}`} />
+          <StatCardMini icon={Activity} label="平均互动 %" value={totals.avgEngagement} accent="amber" sub={`${Number(totals.avgEngagement).toFixed(2)}% · ${totals.posts > 0 ? `共 ${totals.posts} 条样本` : '暂无'}`} />
         </motion.div>
 
         <motion.div variants={STAGGER} initial="hidden" animate="show" className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -6589,7 +6644,7 @@ export default function App() {
                 <h3 className="text-[13.5px] sm:text-[14px] font-semibold text-ink-900 tracking-tight flex items-center gap-1.5">
                   <Flame size={15} />Top 10 爆款作品
                 </h3>
-                <p className="text-[11px] sm:text-[11.5px] text-ink-500 mt-0.5 leading-snug">按互动率排序 · 点击跳转原帖</p>
+                <p className="text-[11px] sm:text-[11.5px] text-ink-500 mt-0.5 leading-snug">按互动排序 · 点击跳转原帖</p>
               </div>
             </div>
             <div className="space-y-2 sm:space-y-2.5">
@@ -6735,7 +6790,7 @@ export default function App() {
             <div className="flex items-center justify-between mb-3.5">
               <div>
                 <h2 className="text-[15px] font-semibold text-ink-900 tracking-tight">Top 20 作品卡片</h2>
-                <p className="text-[12px] text-ink-500 mt-0.5">按互动率排序 · Hover 显示外链跳转</p>
+                <p className="text-[12px] text-ink-500 mt-0.5">按互动排序 · Hover 显示外链跳转</p>
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
@@ -6782,7 +6837,7 @@ export default function App() {
                       )}
                     </div>
                     <div className="p-3.5">
-                      <div className="text-[13px] font-semibold text-ink-900 leading-snug line-clamp-2 break-words h-[38px]">{p.title || '该内容互动率突破临界值'}</div>
+                      <div className="text-[13px] font-semibold text-ink-900 leading-snug line-clamp-2 break-words h-[38px]">{p.title || '该内容互动突破临界值'}</div>
                       <div className="mt-2 flex items-center justify-between gap-2">
                         <div className="text-[10.5px] text-ink-500 truncate min-w-0">
                           <Clock size={9.5} className="inline mr-0.5" />{timeFromNow(p.published_at)} · {p._account}

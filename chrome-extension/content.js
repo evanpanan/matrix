@@ -156,6 +156,39 @@
   }
 
   const uid = () => `${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
+  function fnv1a(str) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = (h * 0x01000193) >>> 0;
+    }
+    return h.toString(36);
+  }
+  function normalizeWeiboUrl(href) {
+    if (!href) return '';
+    try {
+      const u = href.indexOf('://') > 0 ? href : ('https://weibo.com' + (href[0]==='/' ? '' : '/') + href);
+      const url = new URL(u);
+      const m = url.pathname.match(/(?:\/status\/|\/detail\/|\/weibo\/|\/\d\/)([A-Za-z0-9]+)/) || url.pathname.match(/\/(\d{6,})(?:\?|#|$)/);
+      return m ? 'weibo://' + m[1] : '';
+    } catch { return ''; }
+  }
+  function normalizeUrlGeneric(href) {
+    if (!href) return '';
+    try {
+      const u = new URL(href, location.href);
+      return (u.hostname + u.pathname).toLowerCase().replace(/\/+$/, '');
+    } catch { return String(href||'').slice(0,80).toLowerCase(); }
+  }
+  function normalizeDedupKey(platformKey, href, title, publishedAt) {
+    if (platformKey === 'weibo') {
+      const w = normalizeWeiboUrl(href);
+      if (w) return w;
+    }
+    const g = normalizeUrlGeneric(href);
+    if (g) return g;
+    return (title || '').toString().slice(0, 30) + '|' + (publishedAt || '0');
+  }
   const toNum = (v) => {
     if (v == null) return 0;
     if (typeof v === 'number') return v;
@@ -492,7 +525,7 @@
           if (cornerHit) bonus += 40;
           const blob = [el.id || '', typeof el.className === 'string' ? el.className : '', el.alt || ''].join(' ');
           if (/(avatar|头像|profile|user|用户|avatar_img|Pan|潘海祥|Avatar|userImg|user_photo)/i.test(blob)) bonus += 22;
-          if (/(crop|avatar|large|orj360|mw1024|/face/|/face_|/profile/)/i.test(srcStr)) bonus += 18;
+          if (/(crop|avatar|large|orj360|mw1024|\/face\/|\/face_|\/profile\/)/i.test(srcStr)) bonus += 18;
           if (/sinaimg\.cn/i.test(srcStr)) bonus += 6;
           if (y < 800) bonus += 10;
           const parentChain = [el.parentElement, el.parentElement && el.parentElement.parentElement].filter(Boolean).map(n => `${n.className || ''} ${n.id || ''}`).join(' ');
@@ -813,7 +846,7 @@
   }
 
   function extractPosts(platform) {
-    const out = [];
+    let out = [];
     const rules = {
       xiaohongshu: { list: '.note-item, .feeds-container .note, a[href^="/explore/"]', title: '.title, .content, h3, p', views: '.view, .count', likes: '.like-wrapper .count, .like, .icon-like + span', comments: '.comment, .icon-comment + span', url: 'a[href]', date: '.date, .time', cover: 'img.cover, img[class*="cover"], img:not([srcset])' },
       douyin: { list: 'li[data-e2e="user-post-item-list-item"], div[class*="video-card"], a[href^="/video/"]', title: 'div[data-e2e="user-post-item-desc"]', views: 'div[data-e2e="user-post-item-play-count"], .play-count', likes: 'div[data-e2e="user-post-item-digg"], .digg-count', comments: '.comment-count', url: 'a[href]', date: '.time', cover: 'img, img[class*="cover"], img[class*="thumbnail"]' },
@@ -835,6 +868,7 @@
     if (!r) return out;
     let nodes = [];
     try { nodes = all(document, r.list); } catch {}
+    const seen = new Set();
     for (const n of nodes.slice(0, 12)) {
       const title = (text(n, r.title) || (attr(n, r.title ? '' : 'img', 'alt') || '')).replace(/\s+/g, ' ').trim().slice(0, 200);
       if (!title) continue;
@@ -842,12 +876,28 @@
       if (r.views) views = r.viewsRx ? (toNum((text(n, r.views) || '').match(r.viewsRx)?.[1])) : toNum(text(n, r.views));
       if (r.likes)  likes  = toNum(text(n, r.likes));
       if (r.comments) comments = toNum(text(n, r.comments));
-      if (views === 0) { const m = (n.textContent || '').match(/(阅读|播放|views?|播放量)[^\d]{0,6}([\d,.]+\s*[亿万km]?)/i); if (m) views = toNum(m[2]); }
+      if (views === 0) {
+        const fallbackPat = platform.key === 'weibo'
+          ? /(阅读|浏览)[^\d]{0,6}([\d,.]+\s*[亿万km]?)/i
+          : /(阅读|播放|views?|播放量)[^\d]{0,6}([\d,.]+\s*[亿万km]?)/i;
+        const m = (n.textContent || '').match(fallbackPat);
+        if (m) views = toNum(m[2]);
+      }
       let href = attr(n, r.url, 'href');
       if (href && !/^https?:/i.test(href)) href = new URL(href, location.href).href;
       if (!href) href = location.href;
       const d = text(n, r.date) || '';
       const iso = parseRelativeDate(d);
+      const dedupKey = normalizeDedupKey(platform.key, href, title, iso);
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
+      if (platform.key === 'weibo') {
+        const text = (n.textContent || '').toString();
+        const isPin = /置顶/.test(text) || (n.matches && (n.matches('[class*="pin"], [class*="Pin"], .WB_pin, [data-pin="1"]') || n.querySelector('[class*="pin"], .WB_pin')));
+        if (isPin) seen.add('PIN_' + dedupKey);
+        const dupPinKey = 'PIN_' + dedupKey;
+        if (seen.has(dupPinKey) && !isPin) { seen.add(dedupKey); continue; }
+      }
       let coverSrc = '';
       if (r.cover) {
         try {
@@ -865,7 +915,21 @@
         try { coverSrc = new URL(coverSrc, location.href).href; } catch {}
       }
       const images = coverSrc ? [coverSrc] : [];
-      out.push({ id: uid(), title, views, likes, comments, shares: 0, collect: 0, engagement_rate: views > 0 ? +(((likes + comments) / views) * 100).toFixed(2) : 0, url: href, published_at: iso, platform: platform.name, platform_key: platform.key, cover: coverSrc, images });
+      const postIdStr = normalizeDedupKey(platform.key, href, title, iso) || (fnv1a((href||'') + '|' + (title||'') + '|' + (iso||'')));
+      out.push({ id: postIdStr, title, views, likes, comments, shares: 0, collect: 0, engagement_rate: views > 0 ? +(((likes + comments) / views) * 100).toFixed(2) : 0, url: href, published_at: iso, platform: platform.name, platform_key: platform.key, cover: coverSrc, images });
+    }
+    if (platform.key === 'weibo') {
+      const now = Date.now();
+      out = out.filter(p => {
+        if (p.views > 0) return true;
+        try {
+          const t = new Date(p.published_at).getTime();
+          if (!t || isNaN(t)) return true;
+          const ageMs = now - t;
+          if (ageMs > 365 * 24 * 3600 * 1000) return false;
+          return true;
+        } catch { return true; }
+      });
     }
     return out.sort((a, b) => new Date(b.published_at) - new Date(a.published_at));
   }

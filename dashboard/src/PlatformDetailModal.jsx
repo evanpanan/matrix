@@ -7,7 +7,8 @@ import {
   Clock, Heart, MessageCircle, Repeat2, Flame, TrendingUp,
 } from 'lucide-react';
 
-import { PLATFORM_META, PLATFORM_LOGOS, sanitizeUrl } from './lib/api.js';
+import { PLATFORM_META, PLATFORM_LOGOS, sanitizeUrl, dedupPosts } from './lib/api.js';
+import { PLATFORM_METRIC_SEMANTICS } from './lib/mockData.js';
 
 dayjs.extend(relativeTime);
 
@@ -166,7 +167,9 @@ export default function PlatformDetailModal({ platformName, records, onClose }) 
       views: r.views || 0,
       audience: r.entity_type === 'COMMUNITY' ? (r.members || 0) : (r.followers || 0),
       platform: r.platform,
+      platform_key: r.platform_key,
       entity_type: r.entity_type,
+      _metric: r._metric,
     }));
     list.sort((a, b) => b.views - a.views);
     return list;
@@ -174,10 +177,11 @@ export default function PlatformDetailModal({ platformName, records, onClose }) 
   const maxViews = Math.max(1, ...contribution.map(c => c.views));
 
   const topPosts = useMemo(() => {
-    const all = platRecords.flatMap(r => (r.posts || []).map(p => ({ ...p, _account: r.account, _platform: r.platform })));
-    all.sort((a, b) => Number(b.engagement_rate || 0) - Number(a.engagement_rate || 0));
-    return all.slice(0, 5);
-  }, [platRecords]);
+    const all = platRecords.flatMap(r => (r.posts || []).map(p => ({ ...p, _account: r.account, _platform: r.platform, platform_key: r.platform_key })));
+    const deduped = dedupPosts(all, platformMeta?.key);
+    deduped.sort((a, b) => Number(b.engagement_rate || 0) - Number(a.engagement_rate || 0));
+    return deduped.slice(0, 5);
+  }, [platRecords, platformMeta]);
 
   return (
     <AnimatePresence>
@@ -260,7 +264,14 @@ export default function PlatformDetailModal({ platformName, records, onClose }) 
                             </div>
                             <div className="flex items-center gap-2 sm:gap-3 shrink-0 text-[10.5px] sm:text-[11.5px] tabular-nums whitespace-nowrap">
                               <span className="text-ink-600 font-medium">{formatShort(c.audience)} 粉</span>
-                              <span className="text-ink-900 font-bold text-[11.5px] sm:text-[12px]">{formatShort(c.views)}</span>
+                              <span className="inline-flex items-center text-ink-900 font-bold text-[11.5px] sm:text-[12px]">
+                                {formatShort(c.views)}
+                                {(() => {
+                                  const pk = c.platform_key || platformMeta?.key || Object.keys(PLATFORM_META).find(k => PLATFORM_META[k]?.name === c.platform);
+                                  const volumeLabel = pk && PLATFORM_METRIC_SEMANTICS[pk]?.volume_label || c._metric?.volume_label;
+                                  return volumeLabel ? <span className="text-[10px] ml-1 text-ink-400 font-normal">{volumeLabel}</span> : null;
+                                })()}
+                              </span>
                             </div>
                           </div>
                           <div className="h-1.5 rounded-full bg-ink-100 overflow-hidden">

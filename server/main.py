@@ -133,6 +133,27 @@ PLATFORMS: List[Dict[str, str]] = [
     dict(key="weibo",          name="微博",         category="社媒", color="#E6162D"),
 ]
 
+PLATFORM_METRIC_SEMANTICS: Dict[str, Dict[str, str]] = {
+    "wechat":         {"volume_label": "累计阅读", "volume_algo": "max_posts_account_views", "interaction_label": "平均互动/篇", "interaction_algo": "avg_post_interactions"},
+    "wechat_video":   {"volume_label": "累计播放", "volume_algo": "max_posts_account_views", "interaction_label": "平均点赞/篇", "interaction_algo": "avg_post_likes"},
+    "douyin":         {"volume_label": "累计播放", "volume_algo": "max_posts_account_views", "interaction_label": "点赞", "interaction_algo": "likes_total"},
+    "xiaohongshu":    {"volume_label": "浏览", "volume_algo": "max_posts_account_views", "interaction_label": "互动数", "interaction_algo": "interactions_abs"},
+    "weibo":          {"volume_label": "阅读", "volume_algo": "posts_views_sum", "interaction_label": "转评赞", "interaction_algo": "interactions_abs"},
+    "futu":           {"volume_label": "浏览", "volume_algo": "posts_views_sum", "interaction_label": "互动数", "interaction_algo": "interactions_abs"},
+    "laohu":          {"volume_label": "浏览", "volume_algo": "posts_views_sum", "interaction_label": "互动数", "interaction_algo": "interactions_abs"},
+    "huasheng":       {"volume_label": "浏览", "volume_algo": "posts_views_sum", "interaction_label": "互动数", "interaction_algo": "interactions_abs"},
+    "xueqiu":         {"volume_label": "浏览", "volume_algo": "posts_views_sum", "interaction_label": "互动数", "interaction_algo": "interactions_abs"},
+    "x":              {"volume_label": "查看", "volume_algo": "max_posts_account_views", "interaction_label": "互动率", "interaction_algo": "engagement_rate_pct"},
+    "youtube":        {"volume_label": "累计播放", "volume_algo": "max_posts_account_views", "interaction_label": "点赞/视频", "interaction_algo": "avg_post_likes"},
+    "tiktok":         {"volume_label": "累计播放", "volume_algo": "max_posts_account_views", "interaction_label": "点赞", "interaction_algo": "likes_total"},
+    "linkedin":       {"volume_label": "浏览", "volume_algo": "posts_views_sum", "interaction_label": "互动数", "interaction_algo": "interactions_abs"},
+    "instagram":      {"volume_label": "", "volume_algo": "none", "interaction_label": "互动数", "interaction_algo": "interactions_abs"},
+    "discord":        {"volume_label": "24h消息", "volume_algo": "message_volume_24h", "interaction_label": "在线人数", "interaction_algo": "online_count"},
+    "stocktwits":     {"volume_label": "24h发帖", "volume_algo": "posts_24h_count", "interaction_label": "多空情绪", "interaction_algo": "bull_bear_ratio"},
+    "seekingalpha":   {"volume_label": "浏览", "volume_algo": "posts_views_sum", "interaction_label": "互动数", "interaction_algo": "interactions_abs"},
+    "reddit":         {"volume_label": "24h帖子", "volume_algo": "posts_24h_count", "interaction_label": "在线率", "interaction_algo": "online_ratio"},
+}
+
 OPERATORS: List[Dict[str, str]] = [
     dict(operator_uid="admin_001", operator_name="张总（管理）", role="admin"),
 ]
@@ -1236,6 +1257,23 @@ def insert_record(conn: sqlite3.Connection, r: CollectItem):
     _new_posts24 = int(r.posts_24h or 0)
     _new_bull = float(r.sentiment_bull or 0)
     _new_bear = float(r.sentiment_bear or 0)
+    posts_raw = json.loads(json.dumps([p.model_dump() for p in (r.posts or [])], ensure_ascii=False)) if r.posts else []
+    seen = set()
+    deduped_posts = []
+    for p in posts_raw:
+        dedup_key = (
+            (p.get('url') or '').strip()
+            or (p.get('id') or '').strip()
+            or (str(p.get('title','')).strip()[:30] + '|' + str(p.get('published_at','')))
+        )
+        if dedup_key in seen: continue
+        seen.add(dedup_key)
+        deduped_posts.append(p)
+    posts_json = json.dumps(deduped_posts, ensure_ascii=False)
+    if (r.latest_post is None or (isinstance(r.latest_post, dict) and not r.latest_post)) and deduped_posts:
+        latest_post_json = json.dumps(deduped_posts[0], ensure_ascii=False)
+    else:
+        latest_post_json = json.dumps(r.latest_post.model_dump() if r.latest_post else {}, ensure_ascii=False)
     conn.execute(
         """INSERT INTO records(id,account_id,entity_type,account,platform,platform_key,target_url,followers,following,likes,views,comments,collect,engagement_rate,
                               members,online,message_volume_24h,posts_24h,sentiment_bull,sentiment_bear,symbol_price,symbol_change_pct,
@@ -1279,8 +1317,8 @@ def insert_record(conn: sqlite3.Connection, r: CollectItem):
          _new_members, int(r.online or 0), _new_msg24, _new_posts24, _new_bull, _new_bear,
          r.symbol_price, r.symbol_change_pct,
          json.dumps(r.extra or {}, ensure_ascii=False),
-         json.dumps(r.latest_post or {}, ensure_ascii=False),
-         json.dumps([p.model_dump() for p in (r.posts or [])], ensure_ascii=False),
+         latest_post_json,
+         posts_json,
          r.source or "chrome_extension", r.operator_uid or None, r.operator_name or None, r.machine_id or None, r.machine_name or None, r.client_version or None,
          None,
          _dt.datetime.now().isoformat(timespec="seconds"), ts_ms,
